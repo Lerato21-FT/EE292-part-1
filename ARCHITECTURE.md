@@ -1,0 +1,102 @@
+# Architecture
+
+How this project is put together, and why. For a new project this is the
+specification to build from; afterwards it is kept true as the project
+changes. The rules that apply to every task are in AGENTS.md.
+
+## Stack
+
+- Backend: Python 3.14 (base image `python:3.14-slim`, never a floating tag)
+  and FastAPI, with typed request and response models; `/docs` is the
+  contract.
+- Frontend: static HTML and JavaScript, with no build step for our own code.
+  Plotly is vendored into the image for the scientific plots; no browser CDN
+  is used.
+- Everything runs in one development container, as the host user.
+
+## Layout
+
+```text
+docker/              everything that builds the development container, and
+  Dockerfile
+  compose.yaml
+  pyproject.toml     Python dependencies, pytest and Ruff configuration
+  uv.lock            requires-python = ">=3.14,<3.15"
+  package.json       frontend libraries
+  package-lock.json
+src/app/             the backend: api.py (routes only), pipeline.py, models.py
+                     dataset_store.py manages validated, temporary uploads
+src/web/             the page: index.html, app.js, styles.css
+tests/               pytest
+docs/                decisions worth remembering, one short file each
+data/                for future datasets: raw/ is never modified,
+                     processed/ is gitignored
+broadband_100/       supplied read-only lock-in CSV measurements
+Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
+.gitignore .dockerignore .env.example
+```
+
+## Backend
+
+- One pipeline per API endpoint, each with one entry-point function in
+  `pipeline.py`. The API calls it; tests may call any function.
+- `api.py` holds routes only. It also serves our page from `src/web/` and the
+  frontend libraries under `/vendor/`.
+- `dataset_store.py` stages CSV uploads under the container's `/tmp`, validates
+  the complete dataset before activating it, and serializes reads against
+  replacement. Uploads are limited to 100 MB and 1000 files.
+- `pipeline.py` owns CSV parsing, resonance extraction, and both scientific
+  fits. The frontend receives complete data and fit curves from the API.
+- Errors reach the page as one plain message.
+
+## The container
+
+- The Dockerfile has three stages: one with uv only (where `make lock` runs,
+  so the first lock needs no lock), one with Node for the frontend libraries,
+  and the final image with both sets of locked dependencies.
+- The image never copies `src/`. The repository is mounted at `/work`, with
+  `PYTHONPATH=/work/src`. Supplied CSVs are copied into the image at `/data`
+  as read-only data: Python received `EDEADLK` reading those files from the
+  macOS bind mount in this environment.
+- Frontend libraries are installed at build time from `package-lock.json` and
+  copied into the image. Never installed on the host, never committed, never
+  loaded from a CDN.
+- `compose.yaml` publishes on `127.0.0.1`, mounts the repository read-only,
+  and the Makefile loads `.env` when it exists.
+- The bundled dataset is the startup default. Uploaded datasets are held only
+  in container `/tmp` (a tmpfs), replace the active dataset after successful
+  validation, and are discarded when the container stops. Plot images are
+  exported by Plotly in the browser and are not stored by the backend.
+
+## Makefile
+
+`make help` (the default) lists every target in three groups.
+
+Everyday, the only ones a user needs:
+
+- `build`: build everything the project needs, into the image.
+- `up` and `down`: start and stop the app.
+- `verify`: check that it all works (lint, test, smoke). Must pass from a
+  fresh clone with only Docker, Make and git installed.
+- `clean`: return to the state of a fresh clone on a fresh computer. This
+  project's containers, images and generated files are removed; `data/raw/`
+  and `.env` are kept.
+
+While developing:
+
+- `test`: run the tests. `lint`: check the code, changing nothing. `fmt`:
+  rewrite the code into the standard format.
+- `smoke`: start the app, check a real API result (not just a status code),
+  stop it again.
+- `logs` and `shell`: follow the app's output; open a shell inside the
+  container.
+
+Only when dependencies change:
+
+- `lock`: after adding, removing or upgrading a package in
+  `docker/pyproject.toml` or `docker/package.json`, record the exact versions
+  in `docker/uv.lock` and `docker/package-lock.json`, and commit each manifest
+  with its lock. `build` uses only what the locks record, and says so, with
+  this instruction, when a manifest and its lock disagree.
+
+Every target runs through compose (`docker compose -f docker/compose.yaml`).

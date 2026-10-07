@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "127.0.0.1:${FMR_PORT:-8765}:8000"
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      FMR_DATA_DIR: /data
+      RUFF_CACHE_DIR: /tmp/.ruff_cache
+      TMPDIR: /tmp
+    volumes:
+      - ..:/work:ro,cached
+    read_only: true
+    tmpfs:
+      - /tmp

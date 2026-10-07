@@ -1,0 +1,107 @@
+"""FastAPI routes and static app hosting."""
+
+import os
+from pathlib import Path
+from typing import Annotated
+
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.staticfiles import StaticFiles
+
+from app.dataset_store import DatasetStore
+from app.models import (
+    AnalysisResponse,
+    DatasetUploadResponse,
+    MeasurementSummary,
+    TraceResponse,
+)
+from app.pipeline import (
+    MeasurementNotFoundError,
+    analyze_dataset,
+    fit_derivative_signal,
+    list_measurement_files,
+    load_measurement,
+)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIRECTORY = Path(os.environ.get("FMR_DATA_DIR", PROJECT_ROOT / "broadband_100"))
+WEB_DIRECTORY = Path(__file__).resolve().parents[1] / "web"
+DATASET_STORE = DatasetStore(DATA_DIRECTORY)
+
+app = FastAPI(
+    title="FMR Measurement Visualizer",
+    description="Analyze field-swept lock-in ferromagnetic resonance measurements.",
+    version="0.1.0",
+)
+
+
+@app.get("/api/measurements", response_model=list[MeasurementSummary])
+def get_measurements() -> list[MeasurementSummary]:
+    """List available frequency sweeps."""
+    with DATASET_STORE.active_directory() as directory:
+        try:
+            files = list_measurement_files(directory)
+        except ValueError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+    return [
+        MeasurementSummary(
+            measurement_id=filename,
+            filename=filename,
+            frequency_ghz=frequency_ghz,
+        )
+        for filename, frequency_ghz in files
+    ]
+
+
+@app.post("/api/datasets", response_model=DatasetUploadResponse)
+def upload_dataset(files: Annotated[list[UploadFile], File()]) -> DatasetUploadResponse:
+    """Validate and activate uploaded CSV measurements."""
+    try:
+        uploads = [(upload.filename or "", upload.file) for upload in files]
+        measurement_count = DATASET_STORE.replace_from_upload(uploads)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        for upload in files:
+            upload.file.close()
+    return DatasetUploadResponse(measurement_count=measurement_count)
+
+
+@app.get("/api/measurements/{measurement_id}", response_model=TraceResponse)
+def get_measurement_trace(measurement_id: str) -> TraceResponse:
+    """Return one raw trace and the backend-fitted resonance line."""
+    with DATASET_STORE.active_directory() as directory:
+        try:
+            measurement = load_measurement(directory, measurement_id)
+            fit = fit_derivative_signal(measurement.field_oe, measurement.signal)
+        except MeasurementNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+    return TraceResponse(
+        measurement_id=measurement.measurement_id,
+        filename=measurement.filename,
+        frequency_ghz=measurement.frequency_ghz,
+        resonance_field_oe=fit.center_oe,
+        linewidth_pp_oe=fit.linewidth_pp_oe,
+        r_squared=fit.r_squared,
+        field_oe=measurement.field_oe,
+        signal=measurement.signal,
+        fit_signal=fit.signal_fit,
+    )
+
+
+@app.get("/api/analysis", response_model=AnalysisResponse)
+def get_analysis(
+    initial_perpendicular_field_t: float = Query(default=0.9, ge=0, le=2),
+) -> AnalysisResponse:
+    """Analyze all sweeps and fit Kittel and linewidth models."""
+    with DATASET_STORE.active_directory() as directory:
+        try:
+            result = analyze_dataset(directory, initial_perpendicular_field_t)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+    return AnalysisResponse.model_validate(result)
+
+
+app.mount("/vendor", StaticFiles(directory="/vendor"), name="vendor")
+app.mount("/", StaticFiles(directory=WEB_DIRECTORY, html=True), name="web")

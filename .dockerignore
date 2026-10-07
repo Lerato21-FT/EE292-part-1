@@ -1,0 +1,10 @@
+**
+!docker/
+docker/*
+!docker/Dockerfile
+!docker/pyproject.toml
+!docker/uv.lock
+!docker/package.json
+!docker/package-lock.json
+!broadband_100/
+!broadband_100/*.csv
