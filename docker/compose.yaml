@@ -1,5 +1,6 @@
 services:
   app:
+    image: fmr_visualizer:latest
     build:
       context: ..
       dockerfile: docker/Dockerfile
