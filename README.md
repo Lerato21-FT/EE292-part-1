@@ -23,8 +23,13 @@ Stop the app with `make down`. `make help` lists all available targets;
 `make verify` runs lint, tests, and a real API analysis smoke check.
 
 Dependencies are installed in the image from `docker/uv.lock` and
-`docker/package-lock.json`. The `broadband_100/` CSVs are copied into the
-image as read-only demo data; rebuild the image after changing the demo data.
+`docker/package-lock.json`. Application code, tests, and the `broadband_100/`
+demo CSVs are copied into the image at build time. The running app does not
+mount your repository. After changing local code or demo data, run `make up`
+again to rebuild the image and recreate the container with the changes.
+`make build` rebuilds without starting the app. `make test` and `make lint`
+also rebuild before checking the code inside Docker. To select test files,
+use, for example, `make test TEST_PATHS=tests/test_pipeline.py`.
 After editing either dependency manifest, run
 `make lock` and commit the updated manifest and lock together. The CSV folder
 is never modified.

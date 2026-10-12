@@ -10,8 +10,6 @@ services:
       FMR_DATA_DIR: /data
       RUFF_CACHE_DIR: /tmp/.ruff_cache
       TMPDIR: /tmp
-    volumes:
-      - ..:/work:ro,cached
     read_only: true
     tmpfs:
       - /tmp

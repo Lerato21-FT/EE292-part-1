@@ -54,15 +54,19 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
 - The Dockerfile has three stages: one with uv only (where `make lock` runs,
   so the first lock needs no lock), one with Node for the frontend libraries,
   and the final image with both sets of locked dependencies.
-- The image never copies `src/`. The repository is mounted at `/work`, with
-  `PYTHONPATH=/work/src`. Supplied CSVs are copied into the image at `/data`
-  as read-only data: Python received `EDEADLK` reading those files from the
-  macOS bind mount in this environment.
+- The image contains `src/`, `tests/`, and `docker/pyproject.toml` under
+  `/work`, with `PYTHONPATH=/work/src`. Supplied CSVs are copied into the image
+  at `/data` as read-only data. Application code and data are read from the
+  image because Python received `EDEADLK` reading the macOS bind mount in
+  this environment. `.dockerignore` allows only the required build inputs.
+  After local code changes, `make up` rebuilds the image and starts the app
+  with the updated code.
 - Frontend libraries are installed at build time from `package-lock.json` and
   copied into the image. Never installed on the host, never committed, never
   loaded from a CDN.
-- `compose.yaml` publishes on `127.0.0.1`, mounts the repository read-only,
-  and the Makefile loads `.env` when it exists.
+- `compose.yaml` publishes on `127.0.0.1` and runs without host bind mounts;
+  the Makefile loads `.env` when it exists. The container filesystem is
+  read-only except for `/tmp`.
 - The bundled dataset is the startup default. Uploaded datasets are held only
   in container `/tmp` (a tmpfs), replace the active dataset after successful
   validation, and are discarded when the container stops. Plot images are
@@ -84,8 +88,10 @@ Everyday, the only ones a user needs:
 
 While developing:
 
-- `test`: run the tests. `lint`: check the code, changing nothing. `fmt`:
-  rewrite the code into the standard format.
+- `test`: run the tests copied into the image; `TEST_PATHS` can select test
+  files. `lint`: check the code copied into the image, changing nothing.
+  Both rebuild first. `fmt`: rewrite the host source and tests into the
+  standard format using explicit writable mounts for this command only.
 - `smoke`: start the app, check a real API result (not just a status code),
   stop it again.
 - `logs` and `shell`: follow the app's output; open a shell inside the

@@ -7,6 +7,7 @@ export HOST_UID HOST_GID
 COMPOSE := docker compose -f docker/compose.yaml $(if $(wildcard .env),--env-file .env,)
 UV_IMAGE := ghcr.io/astral-sh/uv:0.9.15-python3.14-bookworm-slim
 NODE_IMAGE := node:24.8.0-alpine3.22
+TEST_PATHS ?= tests
 
 .PHONY: help lock build up down verify clean test lint fmt smoke logs shell
 
@@ -30,7 +31,7 @@ down:
 verify: lint test smoke
 
 test: build
-	$(COMPOSE) run --rm app pytest -c docker/pyproject.toml -q
+	$(COMPOSE) run --rm app pytest -c docker/pyproject.toml -q $(TEST_PATHS)
 
 lint: build
 	$(COMPOSE) run --rm app ruff check --config docker/pyproject.toml src tests

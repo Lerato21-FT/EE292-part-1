@@ -8,3 +8,12 @@ docker/*
 !docker/package-lock.json
 !broadband_100/
 !broadband_100/*.csv
+!src/
+!src/app/
+!src/app/*.py
+!src/web/
+!src/web/*.html
+!src/web/*.js
+!src/web/*.css
+!tests/
+!tests/*.py

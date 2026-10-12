@@ -19,5 +19,8 @@ COPY --from=python-deps /opt/venv /opt/venv
 COPY --from=frontend-deps /frontend/node_modules/plotly.js-dist-min/plotly.min.js /vendor/plotly.min.js
 COPY --chown=0:0 broadband_100/ /data/
 RUN chmod -R a=rX /data
+COPY src/ /work/src/
+COPY tests/ /work/tests/
+COPY docker/pyproject.toml /work/docker/pyproject.toml
 EXPOSE 8000
 CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000"]
