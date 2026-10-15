@@ -6,3 +6,4 @@ __pycache__/
 docker/node_modules/
 docker/.venv/
 *.py[cod]
+ee292m.env
