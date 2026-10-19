@@ -20,7 +20,7 @@
       </header>
 
       <section class="intro">
-        <div class="eyebrow">THIN FILM CHARACTERIZATION <span>·</span> IN-PLANE GEOMETRY</div>
+        <div class="eyebrow">THIN FILM CHARACTERIZATION <span>·</span> <b id="geometry-heading">IN-PLANE GEOMETRY</b></div>
         <h1>Ferromagnetic<br><span>resonance.</span></h1>
         <p class="lede">Field-swept lock-in measurements, resolved into resonance, anisotropy and damping.</p>
         <div class="intro-meta">
@@ -31,6 +31,16 @@
       </section>
 
       <section class="controls panel">
+        <div class="geometry-control">
+          <div class="control-copy">
+            <span class="eyebrow">MEASUREMENT GEOMETRY</span>
+            <span>Choose the field direction, then upload your folder.</span>
+          </div>
+          <div class="geometry-toggle" role="group" aria-label="Measurement geometry">
+            <button type="button" data-geometry="in_plane" aria-pressed="true">In-plane</button>
+            <button type="button" data-geometry="out_of_plane" aria-pressed="false">Out-of-plane</button>
+          </div>
+        </div>
         <div class="upload-control">
           <div class="control-copy">
             <span class="eyebrow">MEASUREMENT DATA</span>
@@ -44,7 +54,7 @@
         <div class="fit-control">
           <div class="control-copy">
             <span class="eyebrow">FIT INITIALIZATION</span>
-            <label for="initial-field">Effective perpendicular field <span>μ₀H<sub>eff,⊥</sub></span></label>
+            <label for="initial-field">Initial effective perpendicular field <span>B<sub>eff,⊥</sub></span></label>
           </div>
           <div class="fit-control-actions">
             <div class="control-input">
@@ -53,6 +63,11 @@
             </div>
             <button id="analyze-button" class="button" type="button">Re-fit dataset <span>↗</span></button>
           </div>
+        </div>
+        <div id="linewidth-control" class="linewidth-control" hidden>
+          <label for="initial-linewidth">Initial peak-to-peak linewidth</label>
+          <div class="control-input"><input id="initial-linewidth" type="number" min="0.01" max="10000" step="1" value="10"><span>Oe</span></div>
+          <span>Starting estimates only; the measured sweeps determine the results.</span>
         </div>
       </section>
 
@@ -82,7 +97,7 @@
           <article class="metric-card">
             <div class="metric-label">FOUR-FOLD FIELD TERM <span>TESLA</span></div>
             <div id="fourfold-field" class="metric-value">—</div>
-            <div class="metric-foot">Aligned-axis contribution, φ = 0°</div>
+            <div id="fourfold-note" class="metric-foot">Aligned-axis contribution, φ = 0°</div>
           </article>
           <article class="metric-card metric-accent">
             <div class="metric-label">GILBERT DAMPING α <span>DIMENSIONLESS</span></div>
@@ -94,7 +109,7 @@
         <div class="chart-grid">
           <article class="chart-card">
             <div class="chart-heading">
-              <div><span class="eyebrow">DISPERSION</span><h3>Resonance field vs frequency</h3></div>
+              <div><span class="eyebrow">DISPERSION</span><h3>Frequency vs resonance field</h3></div>
               <div class="chart-actions">
                 <span class="chart-index">FIG. 01</span>
                 <button class="download-button" type="button" data-chart="kittel-chart" data-filename="fmr-kittel-dispersion">Save PNG</button>
@@ -102,9 +117,10 @@
             </div>
             <div id="kittel-chart" class="chart" aria-label="Kittel resonance dispersion plot"></div>
             <div class="equation">
-              <span>ALIGNED-AXIS KITTEL MODEL</span>
+              <span id="kittel-model-label">ALIGNED-AXIS KITTEL MODEL</span>
               <code id="kittel-equation">—</code>
             </div>
+            <div id="kittel-fit-label" class="fit-caption"></div>
           </article>
           <article class="chart-card">
             <div class="chart-heading">
@@ -119,6 +135,7 @@
               <span>GILBERT LINEWIDTH MODEL</span>
               <code id="linewidth-equation">—</code>
             </div>
+            <div id="linewidth-fit-label" class="fit-caption"></div>
           </article>
         </div>
 
@@ -139,7 +156,7 @@
 
         <aside class="model-note">
           <span class="note-mark">i</span>
-          <p><strong>Model scope.</strong> The 0° sweeps fit an aligned-axis effective-field Kittel model. The out-of-plane result is an effective field (including demagnetization), not a standalone anisotropy constant; extracting K<sub>u</sub> requires an independent M<sub>s</sub>. A single azimuth cannot validate angular four-fold symmetry, so the fitted four-fold term is conditional on the 0° alignment/model assumption. Linewidth is the derivative-Lorentzian peak-to-peak width.</p>
+          <p id="model-note"><strong>Model scope.</strong> The 0° sweeps fit an aligned-axis effective-field Kittel model. The out-of-plane result is an effective field (including demagnetization), not a standalone anisotropy constant; extracting Ku requires an independent Ms. A single azimuth cannot validate angular four-fold symmetry. Linewidth is the derivative-Lorentzian peak-to-peak width.</p>
         </aside>
       </section>
 

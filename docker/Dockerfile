@@ -24,3 +24,19 @@ COPY tests/ /work/tests/
 COPY docker/pyproject.toml /work/docker/pyproject.toml
 EXPOSE 8000
 CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000"]
+
+FROM python-deps AS browser-deps
+RUN uv sync --frozen --no-install-project --group browser
+
+FROM python:3.14.0-slim-bookworm AS browser-runtime
+COPY --from=browser-deps /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH" PLAYWRIGHT_BROWSERS_PATH=/opt/browsers
+RUN playwright install --with-deps chromium && chmod -R a=rX /opt/browsers
+
+FROM browser-runtime AS browser-checks
+ENV PYTHONPATH="/work/src" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /work
+COPY --from=app /work /work
+COPY --from=app /data /data
+COPY --from=app /vendor /vendor
+CMD ["python", "tests/browser_check.py"]
