@@ -1,6 +1,10 @@
 """Typed API request and response models."""
 
+from typing import Literal
+
 from pydantic import BaseModel
+
+Geometry = Literal["in_plane", "out_of_plane"]
 
 
 class MeasurementSummary(BaseModel):
@@ -31,11 +35,11 @@ class CurvePoint(BaseModel):
 
 
 class KittelFitResult(BaseModel):
-    """Fitted in-plane Kittel parameters and model curve."""
+    """Geometry-specific Kittel parameters and model curve."""
 
     g_factor: float
     effective_perpendicular_field_t: float
-    fourfold_field_t: float
+    fourfold_field_t: float | None
     r_squared: float
     equation: str
     curve: list[CurvePoint]
@@ -55,6 +59,7 @@ class LinewidthFitResult(BaseModel):
 class AnalysisResponse(BaseModel):
     """Full extracted FMR dataset and fit results."""
 
+    geometry: Geometry
     measurements: list[ResonancePoint]
     kittel_fit: KittelFitResult
     linewidth_fit: LinewidthFitResult
@@ -78,3 +83,4 @@ class DatasetUploadResponse(BaseModel):
     """Result of accepting a replacement dataset."""
 
     measurement_count: int
+    geometry: Geometry

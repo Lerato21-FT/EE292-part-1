@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import curve_fit
 
+from app.models import Geometry
+
 BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T = 13.99624555
 OE_TO_TESLA = 1e-4
 FREQUENCY_PATTERN = re.compile(r"-(\d+(?:\.\d+)?)MHz", re.IGNORECASE)
@@ -32,7 +34,7 @@ class KittelFit:
 
     g_factor: float
     effective_perpendicular_field_t: float
-    fourfold_field_t: float
+    fourfold_field_t: float | None
     r_squared: float
 
 
@@ -88,7 +90,9 @@ def _derivative_lorentzian(
     )
 
 
-def fit_derivative_signal(field_oe: list[float], signal: list[float]) -> ResonanceFit:
+def fit_derivative_signal(
+    field_oe: list[float], signal: list[float], initial_linewidth_pp_oe: float | None = None
+) -> ResonanceFit:
     """Fit a derivative-Lorentzian resonance and return its peak-to-peak linewidth."""
     field = np.asarray(field_oe, dtype=float)
     values = np.asarray(signal, dtype=float)
@@ -113,6 +117,12 @@ def fit_derivative_signal(field_oe: list[float], signal: list[float]) -> Resonan
     initial_center = float(unique_field[int(np.argmax(np.abs(gradient)))])
     step_size = float(np.median(steps))
     initial_width = min(max(span * 0.02, step_size), span * 0.25)
+    if initial_linewidth_pp_oe is not None:
+        if not math.isfinite(initial_linewidth_pp_oe) or initial_linewidth_pp_oe <= 0:
+            raise ValueError("Initial peak-to-peak linewidth must be finite and positive.")
+        initial_width = min(
+            max(initial_linewidth_pp_oe * math.sqrt(3.0) / 2.0, step_size), span * 0.25
+        )
     signal_scale = float(np.max(np.abs(values - np.median(values))))
     initial_amplitude = max(signal_scale * initial_width * 2.0, np.finfo(float).tiny)
 
@@ -200,6 +210,63 @@ def fit_kittel(
         effective_perpendicular_field_t=float(parameters[1]),
         fourfold_field_t=float(parameters[2]),
         r_squared=_coefficient_of_determination(frequency, predicted),
+    )
+
+
+def _out_of_plane_frequency(
+    field_t: np.ndarray, g_factor: float, effective_perpendicular_field_t: float
+) -> np.ndarray:
+    """Evaluate the saturated perpendicular model using Beff = μ0 Ms − μ0 H2⊥."""
+    return (
+        BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T * g_factor * (field_t - effective_perpendicular_field_t)
+    )
+
+
+def fit_out_of_plane_kittel(
+    field_oe: list[float], frequency_ghz: list[float], initial_perpendicular_field_t: float = -0.4
+) -> KittelFit:
+    """Fit g and signed effective field for a saturated perpendicular field sweep."""
+    field = np.asarray(field_oe, dtype=float) * OE_TO_TESLA
+    frequency = np.asarray(frequency_ghz, dtype=float)
+    if (
+        field.ndim != 1
+        or frequency.ndim != 1
+        or field.size != frequency.size
+        or field.size < 4
+        or not np.all(np.isfinite(field))
+        or not np.all(np.isfinite(frequency))
+    ):
+        raise ValueError("Out-of-plane Kittel fitting needs at least four finite resonance points.")
+    if np.any(field < 0) or np.any(frequency <= 0):
+        raise ValueError("Use nonnegative resonance fields and positive frequencies.")
+    if np.unique(field).size < 2:
+        raise ValueError("Out-of-plane fitting needs distinct resonance fields.")
+    if (
+        not math.isfinite(initial_perpendicular_field_t)
+        or not -2 <= initial_perpendicular_field_t <= 2
+    ):
+        raise ValueError("Initial effective perpendicular field must be between −2 and 2 T.")
+    upper_field = min(2.0, float(np.min(field)) - 1e-8)
+    initial_field = min(initial_perpendicular_field_t, upper_field - 1e-8)
+    initial_field = max(-2 + 1e-8, initial_field)
+    try:
+        parameters, _ = curve_fit(
+            _out_of_plane_frequency,
+            field,
+            frequency,
+            p0=[2.0, initial_field],
+            bounds=([1.0, -2.0], [4.0, upper_field]),
+            maxfev=50_000,
+        )
+    except RuntimeError as error:
+        raise ValueError("Could not fit the saturated out-of-plane Kittel model.") from error
+    return KittelFit(
+        g_factor=float(parameters[0]),
+        effective_perpendicular_field_t=float(parameters[1]),
+        fourfold_field_t=None,
+        r_squared=_coefficient_of_determination(
+            frequency, _out_of_plane_frequency(field, *parameters)
+        ),
     )
 
 
@@ -291,36 +358,62 @@ def load_measurement(directory: Path, filename: str) -> Measurement:
 
 
 def analyze_dataset(
-    directory: Path, initial_perpendicular_field_t: float = 0.9
+    directory: Path,
+    initial_perpendicular_field_t: float | None = None,
+    *,
+    geometry: Geometry = "in_plane",
+    initial_linewidth_pp_oe: float | None = None,
 ) -> dict[str, object]:
     """Extract resonances, fit the Kittel model and calculate linewidth damping."""
+    if geometry not in {"in_plane", "out_of_plane"}:
+        raise ValueError("Geometry must be in_plane or out_of_plane.")
+    if initial_perpendicular_field_t is None:
+        initial_perpendicular_field_t = -0.4 if geometry == "out_of_plane" else 0.9
+    if initial_linewidth_pp_oe is None and geometry == "out_of_plane":
+        initial_linewidth_pp_oe = 10.0
     measurements = [
         load_measurement(directory, filename) for filename, _ in list_measurement_files(directory)
     ]
     resonance_fits = [
-        (measurement, fit_derivative_signal(measurement.field_oe, measurement.signal))
+        (
+            measurement,
+            fit_derivative_signal(
+                measurement.field_oe, measurement.signal, initial_linewidth_pp_oe
+            ),
+        )
         for measurement in measurements
     ]
     frequencies = [measurement.frequency_ghz for measurement, _ in resonance_fits]
     fields = [fit.center_oe for _, fit in resonance_fits]
     linewidths = [fit.linewidth_pp_oe for _, fit in resonance_fits]
-    kittel = fit_kittel(fields, frequencies, initial_perpendicular_field_t)
+    if geometry == "out_of_plane":
+        kittel = fit_out_of_plane_kittel(fields, frequencies, initial_perpendicular_field_t)
+        equation = "f = (g μB/h) (Bres − Beff,⊥)"
+    else:
+        kittel = fit_kittel(fields, frequencies, initial_perpendicular_field_t)
+        equation = "f = (g μB/h) √[(Bres + B4)(Bres + B4 + Beff,⊥)]"
     linewidth_fit = fit_linewidth(frequencies, linewidths, kittel.g_factor)
 
     field_min, field_max = min(fields), max(fields)
     field_curve = np.linspace(field_min, field_max, 300)
-    frequency_curve = _kittel_frequency(
-        field_curve * OE_TO_TESLA,
-        kittel.g_factor,
-        kittel.effective_perpendicular_field_t,
-        kittel.fourfold_field_t,
-    )
+    if geometry == "out_of_plane":
+        frequency_curve = _out_of_plane_frequency(
+            field_curve * OE_TO_TESLA, kittel.g_factor, kittel.effective_perpendicular_field_t
+        )
+    else:
+        frequency_curve = _kittel_frequency(
+            field_curve * OE_TO_TESLA,
+            kittel.g_factor,
+            kittel.effective_perpendicular_field_t,
+            kittel.fourfold_field_t,
+        )
     frequency_min, frequency_max = min(frequencies), max(frequencies)
     linewidth_curve_frequency = np.linspace(frequency_min, frequency_max, 200)
     linewidth_curve = (
         linewidth_fit.slope_oe_per_ghz * linewidth_curve_frequency + linewidth_fit.intercept_oe
     )
     return {
+        "geometry": geometry,
         "measurements": [
             {
                 "measurement_id": measurement.measurement_id,
@@ -337,7 +430,7 @@ def analyze_dataset(
             "effective_perpendicular_field_t": kittel.effective_perpendicular_field_t,
             "fourfold_field_t": kittel.fourfold_field_t,
             "r_squared": kittel.r_squared,
-            "equation": "f = (g μB/h) √[(Bres + B4)(Bres + B4 + Beff,⊥)]",
+            "equation": equation,
             "curve": [
                 {"field_oe": float(field), "frequency_ghz": float(frequency)}
                 for field, frequency in zip(field_curve, frequency_curve, strict=True)

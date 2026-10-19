@@ -11,6 +11,7 @@ from app.dataset_store import DatasetStore
 from app.models import (
     AnalysisResponse,
     DatasetUploadResponse,
+    Geometry,
     MeasurementSummary,
     TraceResponse,
 )
@@ -53,26 +54,50 @@ def get_measurements() -> list[MeasurementSummary]:
 
 
 @app.post("/api/datasets", response_model=DatasetUploadResponse)
-def upload_dataset(files: Annotated[list[UploadFile], File()]) -> DatasetUploadResponse:
+def upload_dataset(
+    files: Annotated[list[UploadFile], File()],
+    geometry: Geometry = "in_plane",
+    initial_perpendicular_field_t: float | None = Query(
+        default=None, ge=-2, le=2, allow_inf_nan=False
+    ),
+    initial_linewidth_pp_oe: float | None = Query(
+        default=None, gt=0, le=10000, allow_inf_nan=False
+    ),
+) -> DatasetUploadResponse:
     """Validate and activate uploaded CSV measurements."""
     try:
         uploads = [(upload.filename or "", upload.file) for upload in files]
-        measurement_count = DATASET_STORE.replace_from_upload(uploads)
+        measurement_count = DATASET_STORE.replace_from_upload(
+            uploads,
+            geometry=geometry,
+            initial_perpendicular_field_t=initial_perpendicular_field_t,
+            initial_linewidth_pp_oe=initial_linewidth_pp_oe,
+        )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     finally:
         for upload in files:
             upload.file.close()
-    return DatasetUploadResponse(measurement_count=measurement_count)
+    return DatasetUploadResponse(measurement_count=measurement_count, geometry=geometry)
 
 
 @app.get("/api/measurements/{measurement_id}", response_model=TraceResponse)
-def get_measurement_trace(measurement_id: str) -> TraceResponse:
+def get_measurement_trace(
+    measurement_id: str,
+    initial_linewidth_pp_oe: float | None = Query(
+        default=None, gt=0, le=10000, allow_inf_nan=False
+    ),
+) -> TraceResponse:
     """Return one raw trace and the backend-fitted resonance line."""
-    with DATASET_STORE.active_directory() as directory:
+    with DATASET_STORE.active_analysis() as (directory, geometry, _, stored_linewidth):
         try:
             measurement = load_measurement(directory, measurement_id)
-            fit = fit_derivative_signal(measurement.field_oe, measurement.signal)
+            linewidth = (
+                initial_linewidth_pp_oe if initial_linewidth_pp_oe is not None else stored_linewidth
+            )
+            if linewidth is None and geometry == "out_of_plane":
+                linewidth = 10.0
+            fit = fit_derivative_signal(measurement.field_oe, measurement.signal, linewidth)
         except MeasurementNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
@@ -92,12 +117,31 @@ def get_measurement_trace(measurement_id: str) -> TraceResponse:
 
 @app.get("/api/analysis", response_model=AnalysisResponse)
 def get_analysis(
-    initial_perpendicular_field_t: float = Query(default=0.9, ge=0, le=2),
+    geometry: Geometry | None = None,
+    initial_perpendicular_field_t: float | None = Query(
+        default=None, ge=-2, le=2, allow_inf_nan=False
+    ),
+    initial_linewidth_pp_oe: float | None = Query(
+        default=None, gt=0, le=10000, allow_inf_nan=False
+    ),
 ) -> AnalysisResponse:
     """Analyze all sweeps and fit Kittel and linewidth models."""
-    with DATASET_STORE.active_directory() as directory:
+    with DATASET_STORE.active_analysis() as (
+        directory,
+        stored_geometry,
+        stored_field,
+        stored_linewidth,
+    ):
         try:
-            result = analyze_dataset(directory, initial_perpendicular_field_t)
+            selected_geometry = geometry or stored_geometry
+            field = initial_perpendicular_field_t
+            linewidth = initial_linewidth_pp_oe
+            if selected_geometry == stored_geometry:
+                field = stored_field if field is None else field
+                linewidth = stored_linewidth if linewidth is None else linewidth
+            result = analyze_dataset(
+                directory, field, geometry=selected_geometry, initial_linewidth_pp_oe=linewidth
+            )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
     return AnalysisResponse.model_validate(result)

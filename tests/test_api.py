@@ -25,5 +25,5 @@ def test_dataset_upload_endpoint_activates_uploaded_measurements(tmp_path: Path,
 
     upload_response, measurements_response = asyncio.run(post_upload_and_list_measurements())
     assert upload_response.status_code == 200
-    assert upload_response.json() == {"measurement_count": 49}
+    assert upload_response.json() == {"measurement_count": 49, "geometry": "in_plane"}
     assert len(measurements_response.json()) == 49

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
+from app.models import Geometry
 from app.pipeline import analyze_dataset, list_measurement_files
 
 LOGGER = logging.getLogger(__name__)
@@ -24,6 +25,9 @@ class DatasetStore:
 
     def __init__(self, initial_directory: Path, upload_root: Path = Path("/tmp")) -> None:
         self._active_directory = initial_directory
+        self._geometry: Geometry = "in_plane"
+        self._initial_perpendicular_field_t: float | None = None
+        self._initial_linewidth_pp_oe: float | None = None
         self._uploaded_directory: Path | None = None
         self._upload_root = upload_root
         self._lock = threading.RLock()
@@ -34,7 +38,25 @@ class DatasetStore:
         with self._lock:
             yield self._active_directory
 
-    def replace_from_upload(self, uploads: list[tuple[str, BinaryIO]]) -> int:
+    @contextmanager
+    def active_analysis(self) -> Iterator[tuple[Path, Geometry, float | None, float | None]]:
+        """Read the active files, geometry and initialization under the same lock."""
+        with self._lock:
+            yield (
+                self._active_directory,
+                self._geometry,
+                self._initial_perpendicular_field_t,
+                self._initial_linewidth_pp_oe,
+            )
+
+    def replace_from_upload(
+        self,
+        uploads: list[tuple[str, BinaryIO]],
+        *,
+        geometry: Geometry = "in_plane",
+        initial_perpendicular_field_t: float | None = None,
+        initial_linewidth_pp_oe: float | None = None,
+    ) -> int:
         """Validate uploaded CSV sweeps, then atomically make them active."""
         with self._lock:
             if not uploads:
@@ -50,10 +72,18 @@ class DatasetStore:
             try:
                 self._write_uploads(candidate_directory, uploads)
                 measurements = list_measurement_files(candidate_directory)
-                analyze_dataset(candidate_directory)
+                analyze_dataset(
+                    candidate_directory,
+                    initial_perpendicular_field_t,
+                    geometry=geometry,
+                    initial_linewidth_pp_oe=initial_linewidth_pp_oe,
+                )
 
                 previous_upload = self._uploaded_directory
                 self._active_directory = candidate_directory
+                self._geometry = geometry
+                self._initial_perpendicular_field_t = initial_perpendicular_field_t
+                self._initial_linewidth_pp_oe = initial_linewidth_pp_oe
                 self._uploaded_directory = candidate_directory
                 committed = True
                 if previous_upload is not None:
@@ -63,9 +93,7 @@ class DatasetStore:
                 if not committed:
                     self._remove_directory(candidate_directory)
 
-    def _write_uploads(
-        self, destination: Path, uploads: list[tuple[str, BinaryIO]]
-    ) -> None:
+    def _write_uploads(self, destination: Path, uploads: list[tuple[str, BinaryIO]]) -> None:
         """Write bounded, flat CSV files, rejecting unsafe or ambiguous names."""
         total_bytes = 0
         filenames: set[str] = set()
