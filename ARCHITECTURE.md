@@ -6,13 +6,14 @@ changes. The rules that apply to every task are in AGENTS.md.
 
 ## Stack
 
-- Backend: Python 3.14 (base image `python:3.14-slim`, never a floating tag)
+- Backend: Python 3.14 (base image `python:3.14.0-slim-bookworm`)
   and FastAPI, with typed request and response models; `/docs` is the
   contract.
 - Frontend: static HTML and JavaScript, with no build step for our own code.
   Plotly is vendored into the image for the scientific plots; no browser CDN
   is used.
-- Everything runs in one development container, as the host user.
+- The app runs in one development container, as the host user; browser
+  validation uses a separate test container.
 
 ## Layout
 
@@ -93,7 +94,7 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
 - Frontend libraries are installed at build time from `package-lock.json` and
   copied into the image. Never installed on the host, never committed, never
   loaded from a CDN.
-- `compose.yaml` publishes on `127.0.0.1` and runs without host bind mounts;
+- The app service publishes on `127.0.0.1` and runs without host bind mounts;
   the Makefile loads `.env` when it exists. The container filesystem is
   read-only except for `/tmp`.
 - The bundled dataset is the startup default. Uploaded datasets are held only
