@@ -414,6 +414,8 @@ def analyze_dataset(
     )
     return {
         "geometry": geometry,
+        "initial_perpendicular_field_t": initial_perpendicular_field_t,
+        "initial_linewidth_pp_oe": initial_linewidth_pp_oe,
         "measurements": [
             {
                 "measurement_id": measurement.measurement_id,

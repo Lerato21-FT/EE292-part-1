@@ -36,23 +36,30 @@ the model equations, and supports PNG plot downloads. Dependencies are built
 into Docker images, the app is published only on 127.0.0.1, and the repository
 provides automated tests and a `make verify` gate.
 
-## Next step: out-of-plane magnetic anisotropy plots
+## Out-of-plane magnetic anisotropy plots (implemented 2026-10-19)
 
-Extend the app to support out-of-plane FMR measurements alongside the
-existing in-plane workflow. Add a button or toggle labeled **In-plane** /
-**Out-of-plane** so users can choose the measurement geometry, upload their
+The app now supports out-of-plane FMR measurements alongside the
+existing in-plane workflow. A toggle labeled **In-plane** /
+**Out-of-plane** lets users choose the measurement geometry, upload their
 folder of sweeps, and generate the corresponding plots.
 
-For the out-of-plane workflow, use an approximate linewidth of **10 Oe** and
-an out-of-plane anisotropy field of **−0.4 T** as initial assumptions for
-fitting, rather than fixed measured results. Keep the existing CSV input
-format. Generate frequency versus resonance field with the appropriate
-out-of-plane Kittel fit, and linewidth versus frequency with the damping fit,
-showing the fitted equations and parameters on the plots.
+The out-of-plane workflow uses an approximate linewidth of **10 Oe** and an
+effective perpendicular field of **−0.4 T** as initial fitting assumptions.
+It keeps the existing CSV input format and generates frequency versus
+resonance field with the saturated perpendicular Kittel fit, and linewidth
+versus frequency with the damping fit, showing equations and fitted parameters.
 
-The selected geometry must be passed to the API so the backend performs the
-appropriate scientific analysis and returns plot data and fit curves. Before
-implementing the out-of-plane model, define the sign convention for the
-−0.4 T anisotropy field and its relationship to the effective perpendicular
-field used in the existing model, and specify whether the 10 Oe estimate is
-peak-to-peak linewidth or another linewidth convention.
+The selected geometry is passed to the API so the backend performs the
+appropriate scientific analysis and returns plot data and fit curves.
+The approved convention is `Beff,⊥ = μ0 Ms − μ0 H2⊥`, with −0.4 T as its
+initial value; the saturated perpendicular model is
+`f = (g μB/h)(Bres − Beff,⊥)`. The 10 Oe estimate means derivative
+peak-to-peak linewidth. These initialize the fits rather than fix the results.
+The perpendicular fit does not infer a four-fold in-plane term.
+
+Charts resize to their containers, reserve space for equations and legends,
+and export PNGs with fitted values and an opaque background. Switching
+geometry asks for a matching folder; validated uploads retain their geometry
+and initialization across a browser reload. Daily implementation and
+verification records live in `notes/YYYY-MM-DD.md`, beginning with
+`notes/2026-10-19.md`.

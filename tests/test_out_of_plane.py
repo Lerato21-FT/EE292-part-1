@@ -64,7 +64,10 @@ def _check_result(result: dict) -> None:
 
 
 def test_perpendicular_pipeline_recovers_known_results(perpendicular_dataset: Path):
-    _check_result(analyze_dataset(perpendicular_dataset, geometry="out_of_plane"))
+    result = analyze_dataset(perpendicular_dataset, geometry="out_of_plane")
+    _check_result(result)
+    assert result["initial_perpendicular_field_t"] == -0.4
+    assert result["initial_linewidth_pp_oe"] == 10
 
 
 def test_perpendicular_upload_analysis_and_trace(
@@ -81,12 +84,18 @@ def test_perpendicular_upload_analysis_and_trace(
                 ("files", (f"folder/{p.name}", p.read_bytes(), "text/csv"))
                 for p in perpendicular_dataset.glob("*.csv")
             ]
-            uploaded = await client.post("/api/datasets?geometry=out_of_plane", files=files)
+            uploaded = await client.post(
+                "/api/datasets?geometry=out_of_plane"
+                "&initial_perpendicular_field_t=-0.3&initial_linewidth_pp_oe=12",
+                files=files,
+            )
             assert uploaded.status_code == 200, uploaded.text
             assert uploaded.json()["geometry"] == "out_of_plane"
             response = await client.get("/api/analysis")
             assert response.status_code == 200, response.text
             _check_result(response.json())
+            assert response.json()["initial_perpendicular_field_t"] == -0.3
+            assert response.json()["initial_linewidth_pp_oe"] == 12
             first = response.json()["measurements"][0]
             trace = await client.get(f"/api/measurements/{first['measurement_id']}")
             assert trace.status_code == 200
@@ -100,6 +109,8 @@ def test_perpendicular_upload_analysis_and_trace(
             assert rejected.status_code == 422
             retained = await client.get("/api/analysis")
             _check_result(retained.json())
+            assert retained.json()["initial_perpendicular_field_t"] == -0.3
+            assert retained.json()["initial_linewidth_pp_oe"] == 12
 
     asyncio.run(exercise())
 

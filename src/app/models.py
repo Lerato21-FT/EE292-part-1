@@ -60,6 +60,8 @@ class AnalysisResponse(BaseModel):
     """Full extracted FMR dataset and fit results."""
 
     geometry: Geometry
+    initial_perpendicular_field_t: float
+    initial_linewidth_pp_oe: float | None
     measurements: list[ResonancePoint]
     kittel_fit: KittelFitResult
     linewidth_fit: LinewidthFitResult

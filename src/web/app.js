@@ -273,6 +273,8 @@ async function analyze(restoreActiveDataset = false) {
       geometry = analysis.geometry;
       activeGeometry = geometry;
       updateGeometryControls();
+      elements.initialField.value = String(analysis.initial_perpendicular_field_t);
+      elements.initialLinewidth.value = String(analysis.initial_linewidth_pp_oe ?? 10);
       activeDatasetLabel = `${analysis.measurements.length} ${geometry === "out_of_plane" ? "out-of-plane" : "in-plane"} sweeps active`;
       elements.datasetStatus.textContent = activeDatasetLabel;
     }
