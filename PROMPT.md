@@ -12,3 +12,47 @@ For the FMR frequency vs field - we should fit the kittel equation for a thin fi
 Then use the Lane g factor to extract damping from the linewidth vs frequency fitting. SHow the equations you fit in the plots. 
 
 We want to build a webapp that we can visualize only on the computer which means you are to build a fastAPI exposing the localhost port. 
+
+## Progress so far
+
+We have built a local-only FastAPI web app for field-swept FMR measurements
+recorded with a lock-in amplifier. It starts with bundled example data and
+allows users to upload a folder of CSV sweeps, with frequency read from each
+filename, magnetic field in Oe in the first column, and lock-in signal in the
+second column. Uploads are validated before replacing the active dataset and
+are stored temporarily in the container.
+
+The backend fits each trace to a derivative Lorentzian with a linear
+background to extract resonance field and peak-to-peak linewidth. It then
+produces frequency-versus-resonance-field plots with an aligned in-plane
+Kittel fit, and linewidth-versus-frequency plots with a damping fit using the
+fitted Landé g factor. The fitted perpendicular field is an effective field,
+not an independently determined uniaxial anisotropy constant; the four-fold
+term assumes an aligned in-plane axis and cannot establish angular symmetry
+from a single azimuth.
+
+The browser displays backend results, raw traces and fitted curves, shows
+the model equations, and supports PNG plot downloads. Dependencies are built
+into Docker images, the app is published only on 127.0.0.1, and the repository
+provides automated tests and a `make verify` gate.
+
+## Next step: out-of-plane magnetic anisotropy plots
+
+Extend the app to support out-of-plane FMR measurements alongside the
+existing in-plane workflow. Add a button or toggle labeled **In-plane** /
+**Out-of-plane** so users can choose the measurement geometry, upload their
+folder of sweeps, and generate the corresponding plots.
+
+For the out-of-plane workflow, use an approximate linewidth of **10 Oe** and
+an out-of-plane anisotropy field of **−0.4 T** as initial assumptions for
+fitting, rather than fixed measured results. Keep the existing CSV input
+format. Generate frequency versus resonance field with the appropriate
+out-of-plane Kittel fit, and linewidth versus frequency with the damping fit,
+showing the fitted equations and parameters on the plots.
+
+The selected geometry must be passed to the API so the backend performs the
+appropriate scientific analysis and returns plot data and fit curves. Before
+implementing the out-of-plane model, define the sign convention for the
+−0.4 T anisotropy field and its relationship to the effective perpendicular
+field used in the existing model, and specify whether the 10 Oe estimate is
+peak-to-peak linewidth or another linewidth convention.
