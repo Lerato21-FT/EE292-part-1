@@ -47,19 +47,31 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
 - `api.py` holds routes only. It also serves our page from `src/web/` and the
   frontend libraries under `/vendor/`.
 - `dataset_store.py` stages CSV uploads under the container's `/tmp`, validates
-  the complete dataset before activating it, and serializes reads against
+  every CSV and fit setting before activating it, and serializes reads against
   replacement. Geometry and fit initialization are activated atomically with
   the files and retained for later API calls and page reloads. Uploads are
   limited to 100 MB and 1000 files.
+- Upload validation uses `validate_dataset`: frequency metadata must be positive
+  and finite, with at least eight finite numeric field/signal rows per CSV.
+  Resonance extraction and aggregate fit success do not gate activation.
 - `pipeline.py` owns CSV parsing, resonance extraction, and both scientific
   fits. The frontend receives complete data and fit curves from the API.
 - Analysis accepts request-scoped `excluded_measurement_ids`, validated for
   length, uniqueness and membership in the active dataset. Both aggregate
   fits use the same included subset; damping uses its refitted g factor.
   Responses retain every resonance point with an `excluded` flag and report
-  `included_measurement_count`. Fewer than four included measurements are
-  rejected before fitting. Raw files and raw-trace access are unaffected.
-- Errors reach the page as one plain message.
+  `included_measurement_count`. Failed per-sweep extractions retain their IDs
+  and `extraction_error`, with null extracted values. They must be explicitly
+  excluded before fitting the remaining measurements.
+- A valid analysis returns all measurements even when scientific fitting is
+  unavailable: both aggregate fits are null and `fit_error` explains why.
+  This includes fewer than four included sweeps, negative fitted resonances
+  unsupported by the perpendicular model, and nonphysical linewidth fits.
+  Invalid settings, CSVs, and exclusion IDs remain HTTP 422 errors.
+- `analyze_trace` returns raw samples independently of resonance fit success;
+  a failed fit has null parameters, an empty curve, and `extraction_error`.
+  Signed field coordinates are preserved throughout; no absolute-field
+  conversion or implicit branch selection is performed.
 - Analysis selects the aligned-axis in-plane Kittel model or the saturated
   perpendicular model `f = (g μB/h)(Bres − Beff,⊥)`, using the convention
   `Beff,⊥ = μ0 Ms − μ0 H2⊥`. Perpendicular defaults are −0.4 T and 10 Oe
@@ -78,6 +90,11 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   selected markers are cyan and excluded markers are gray crosses in both
   plots. A failed request leaves the previous results available. Exclusions
   survive refits within the page and reset on reload or a successful upload.
+- Valid responses with unavailable fits clear previous property values and
+  curves, display an explanatory status, and retain point selection and raw
+  inspection. Failed extractions are labeled in the dataset and trace lists;
+  their missing coordinates are not plotted. Raw traces still render with an
+  unavailable-fit annotation. PNG exports also indicate unavailable fits.
 - Plotly charts render after their results section becomes visible, resize
   with `ResizeObserver`, and become one column below 1100 px. Equations,
   legends and axes have reserved margins. PNGs include fitted values and

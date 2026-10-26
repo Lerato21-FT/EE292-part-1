@@ -1,6 +1,12 @@
 Tasks are specified here. When done with a task, label it as complete. Execute the tasks in order of the priority. 
 # Tasks
 
+- [ ] Allow valid out-of-plane uploads to be plotted before magnetic-property fits succeed.
+  - Validate CSV structure, finite samples, positive frequency metadata, and fit settings independently of scientific fitting.
+  - Preserve signed resonance fields and raw traces. Report unavailable aggregate fits explicitly and allow linked exclusions to recover them.
+  - Keep raw sweeps accessible when individual resonance extraction fails; require explicit exclusion before fitting the remaining measurements.
+  - Clear stale properties and curves when the selected subset cannot be fitted. Test mixed-sign uploads, exclusion/restoration, malformed-upload rejection, and raw-trace access before marking complete.
+
 - [x] Add linked dataset exclusions after plotting FMR frequency vs linewidth and FMR frequency vs field.
   - Let the user select plotted data points whose underlying raw-data fits are unreliable and apply an exclusion.
   - Link exclusions by dataset: excluding a dataset from either plot excludes its corresponding point from both plots and both magnetic-property fits.

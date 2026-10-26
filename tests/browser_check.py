@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 from playwright.sync_api import Page, expect, sync_playwright
-from test_out_of_plane import write_perpendicular_dataset
+from test_out_of_plane import write_mixed_field_dataset, write_perpendicular_dataset
 
 ARTIFACTS = Path("/artifacts")
 CHART_IDS = ("kittel-chart", "linewidth-chart", "trace-chart")
@@ -46,8 +46,8 @@ def check_chart_layout(page: Page) -> None:
           }
         }
         const annotation = chart.querySelector('.annotation-text').getBoundingClientRect();
-        const legend = chart.querySelector('.legend').getBoundingClientRect();
-        if (annotation.bottom > legend.top - 2) {
+        const legend = chart.querySelector('.legend')?.getBoundingClientRect();
+        if (legend && annotation.bottom > legend.top - 2) {
           errors.push(chart.id + ': equation overlaps legend at ' + innerWidth);
         }
         if (chart._fullLayout._size.h < 100) errors.push(chart.id + ': plot area too short');
@@ -125,6 +125,7 @@ def exercise_browser() -> None:
             page.locator("#analyze-button").click()
             wait_for_results(page)
             expect(page.locator("#perpendicular-field")).to_have_text("-0.4000")
+            exercise_unavailable_fits(page, Path(temporary))
             page.get_by_role("button", name="In-plane", exact=True).click()
             page.locator("#dataset-folder").set_input_files("/data")
             wait_for_results(page)
@@ -156,9 +157,10 @@ def exercise_exclusions(page: Page, total: int) -> None:
         expect(page.locator("#sweep-count")).to_have_text(str(total - 1).zfill(2))
         expect(page.locator("#selection-status")).to_contain_text("1 excluded")
         for linked_chart in ("kittel-chart", "linewidth-chart"):
-            assert page.locator(f"#{linked_chart}").evaluate(
-                "chart => chart.data[1].marker.symbol[0]"
-            ) == "x"
+            assert (
+                page.locator(f"#{linked_chart}").evaluate("chart => chart.data[1].marker.symbol[0]")
+                == "x"
+            )
         expect(page.locator("#trace-select option").first).to_contain_text("excluded")
         check_chart_layout(page)
         page.locator("#analyze-button").click()
@@ -175,9 +177,13 @@ def exercise_exclusions(page: Page, total: int) -> None:
     )
     page.locator("#dataset-selection").select_option(options[:-3])
     page.locator("#exclude-selected").click()
-    expect(page.locator("#error-message")).to_contain_text("at least four", timeout=60000)
-    expect(page.locator("#exclude-selected")).to_be_enabled()
+    wait_for_results(page)
+    expect(page.locator("#fit-status")).to_contain_text("at least four")
     expect(page.locator("#results")).to_be_visible()
+    expect(page.locator("#g-factor")).to_have_text("—")
+    expect(page.locator("#sweep-count")).to_have_text("03")
+    page.locator("#restore-all").click()
+    wait_for_results(page)
     expect(page.locator("#sweep-count")).to_have_text(str(total).zfill(2))
     page.locator("#dataset-selection").select_option(options[:1])
     page.locator("#exclude-selected").click()
@@ -187,6 +193,53 @@ def exercise_exclusions(page: Page, total: int) -> None:
     wait_for_results(page)
     expect(page.locator("#g-factor")).to_have_text(original)
     expect(page.locator("#sweep-count")).to_have_text(str(total).zfill(2))
+
+
+def exercise_unavailable_fits(page: Page, temporary: Path) -> None:
+    """Inspect signed resonances, recover property fits, and retain failed raw traces."""
+    mixed_root = temporary / "mixed"
+    mixed_root.mkdir()
+    folder = write_mixed_field_dataset(mixed_root)
+    page.locator("#dataset-folder").set_input_files(str(folder))
+    wait_for_results(page)
+    expect(page.locator("#fit-status")).to_contain_text("nonnegative")
+    expect(page.locator("#g-factor")).to_have_text("—")
+    expect(page.locator("#damping")).to_have_text("—")
+    expect(page.locator("#trace-summary")).to_contain_text("-700.00 Oe")
+    for chart in ("kittel-chart", "linewidth-chart"):
+        assert page.locator(f"#{chart}").evaluate("chart => chart.data[0].x.length") == 0
+        assert page.locator(f"#{chart}").evaluate("chart => chart.data[1].x.length") == 9
+    for width in (1440, 320):
+        page.set_viewport_size({"width": width, "height": 1000})
+        check_chart_layout(page)
+    page.set_viewport_size({"width": 1440, "height": 1100})
+    check_chart_layout(page)
+    page.screenshot(path=str(ARTIFACTS / "mixed-fields-before-exclusion.png"), full_page=True)
+    negative_id = page.locator("#dataset-selection option").first.get_attribute("value")
+    assert negative_id is not None
+    page.locator("#dataset-selection").select_option(negative_id)
+    page.locator("#exclude-selected").click()
+    wait_for_results(page)
+    expect(page.locator("#fit-status")).to_be_hidden()
+    expect(page.locator("#g-factor")).to_have_text("2.1200")
+    expect(page.locator("#damping")).to_have_text("0.0002000")
+    page.locator("#restore-all").click()
+    wait_for_results(page)
+    expect(page.locator("#fit-status")).to_contain_text("nonnegative")
+    expect(page.locator("#g-factor")).to_have_text("—")
+    page.reload()
+    wait_for_results(page)
+    expect(page.locator("#fit-status")).to_contain_text("nonnegative")
+    flat_folder = temporary / "flat"
+    flat_folder.mkdir()
+    (flat_folder / "sample-OOP-14000MHz-flat.csv").write_text("100,1\n" * 8, encoding="utf-8")
+    page.locator("#dataset-folder").set_input_files(str(flat_folder))
+    wait_for_results(page)
+    expect(page.locator("#trace-summary")).to_contain_text("distinct")
+    expect(page.locator("#dataset-selection option")).to_contain_text("fit unavailable")
+    assert page.locator("#trace-chart").evaluate("chart => chart.data[0].y.length") == 8
+    assert page.locator("#trace-chart").evaluate("chart => chart.data[1].y.length") == 0
+    check_chart_layout(page)
 
 
 def main() -> None:

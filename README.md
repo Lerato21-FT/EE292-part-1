@@ -51,9 +51,10 @@ Each `.csv` filename must contain a frequency such as `-10000MHz-`. The
 backend interprets the first column as field in Oe and the second as lock-in
 signal; later columns are ignored. Blank lines are allowed, but rows with
 missing, non-numeric, or non-finite values are reported as errors. The entire
-upload must pass validation and analysis before it replaces the active dataset.
-An invalid upload leaves the currently active dataset and geometry unchanged. Data files
-are never modified.
+upload must pass CSV and fit-setting validation before it replaces the active
+dataset. Scientific fit success is evaluated afterwards and does not block a
+valid upload. An invalid upload leaves the active dataset and geometry unchanged.
+Data files are never modified.
 
 Changing geometry hides the previous plots and asks for a matching folder;
 it does not reinterpret the demo or the last uploaded dataset automatically.
@@ -87,11 +88,31 @@ analyses depend on the same resonance fits, including the g factor used for damp
 Excluded points remain visible as gray crosses, with their status in the
 hover label, dataset list, and raw-trace selector. Their raw files are preserved.
 Select excluded points and choose **Restore selected**, or use **Restore all
-excluded**. At least four included sweeps are required; a rejected exclusion
-shows an explanation and keeps the previous results. The sweep count shows
+excluded**. At least four included sweeps are required for property fits.
+When the selected subset cannot be fitted, its points remain visible and an
+explanation appears; unavailable parameters and fit curves are cleared. Restore
+datasets or adjust exclusions to recover both fits. The sweep count shows
 the number included in the fits. Exclusions survive **Re-fit dataset** in
 the current page, and reset on page reload or successful replacement upload.
 PNG exports include the gray crosses and the recalculated fit parameters.
+
+### Inspect data before fits succeed
+
+Folders may contain both negative and positive applied fields. The plots and
+raw-trace selector remain available even if a negative fitted resonance makes
+the current positive-branch perpendicular model unavailable. The page identifies
+affected sweeps and preserves their signed field coordinates. Inspect and select
+the relevant datasets, then exclude them from both fits to analyze the remaining
+positive-branch points. No field magnitudes are substituted and no datasets are
+silently dropped. Supporting negative-branch property fits requires a separate
+model change.
+
+If an individual resonance cannot be extracted, its raw samples remain
+available and its dataset-list entry says **resonance fit unavailable**. It has
+no extracted point to plot. Exclude that sweep explicitly before fitting the
+remaining measurements. Both aggregate fits and their parameters stay unavailable
+until the included measurements support both models. PNGs display an unavailable
+fit annotation when no fit exists.
 
 ## Models and units
 
@@ -159,10 +180,12 @@ convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.nc
 
 - `GET /api/measurements` lists frequency sweeps.
 - `GET /api/measurements/{measurement_id}` returns one raw trace and its
-  fitted resonance curve. Optional `initial_linewidth_pp_oe` overrides the
+  fitted resonance curve. If extraction fails, fit parameters are `null`,
+  `fit_signal` is empty, and `extraction_error` explains why; raw samples
+  are still returned. Optional `initial_linewidth_pp_oe` overrides the
   active dataset's initialization for that trace.
 - `POST /api/datasets?geometry=out_of_plane` accepts multipart `files` and
-  validates the complete dataset using the selected geometry. Optional
+  validates all CSVs and fit settings without requiring successful fits. Optional
   `initial_perpendicular_field_t` and `initial_linewidth_pp_oe` initialize
   the fits and are retained with the accepted dataset. Geometry defaults
   to `in_plane` for compatibility.
@@ -172,10 +195,16 @@ convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.nc
 - Add repeated `excluded_measurement_ids` query parameters to exclude sweep
   IDs from both fits. All extracted measurements remain in the response with
   an `excluded` flag; `included_measurement_count` reports the fitted subset.
-  Unknown, duplicate, empty, overly long IDs, or selections leaving fewer
-  than four included sweeps return HTTP 422. Requests support up to 1000 IDs
+  Unknown, duplicate, empty, or overly long IDs return HTTP 422. Requests
+  support up to 1000 IDs
   of at most 255 characters. Exclusions apply to that request only; omitting
   them restores the complete dataset. Raw-trace endpoints remain available.
+- Valid analysis requests return HTTP 200 even when scientific fitting fails.
+  `kittel_fit` and `linewidth_fit` are both `null` and `fit_error` explains the
+  problem, including insufficient included points. Every measurement stays in
+  the response; failed extractions have `null` resonance/linewidth/R² values
+  and an `extraction_error`. Successful extraction and aggregate fits have
+  `null` error fields. Invalid CSV data or settings still return HTTP 422.
 - `GET /api/analysis?geometry=out_of_plane&initial_perpendicular_field_t=-0.4&initial_linewidth_pp_oe=10`
   explicitly selects the perpendicular model. Omitting settings uses the
   active upload's geometry and initialization. The response includes
@@ -188,6 +217,8 @@ convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.nc
 `make browser` checks actual folder uploads, geometry selection, refitting,
 reload persistence, rejected-upload recovery, linked exclusions from either
 plot, restoration, insufficient-data recovery, and PNG downloads in Chromium.
+It also uploads mixed-sign data, inspects points before property fits exist,
+recovers known fits through exclusions, and checks failed raw resonance fits.
 It checks chart and label bounds at 1440, 1024, 768, 390, and 320 pixel widths
 for perpendicular data, and desktop/mobile widths for in-plane data.
 Screenshots and exported PNGs are saved under gitignored `artifacts/`.
