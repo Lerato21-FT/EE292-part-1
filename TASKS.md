@@ -1,11 +1,13 @@
 Tasks are specified here. When done with a task, label it as complete. Execute the tasks in order of the priority. 
 # Tasks
 
-- [ ] Allow valid out-of-plane uploads to be plotted before magnetic-property fits succeed.
+- [x] Allow valid out-of-plane uploads to be plotted before magnetic-property fits succeed.
   - Validate CSV structure, finite samples, positive frequency metadata, and fit settings independently of scientific fitting.
   - Preserve signed resonance fields and raw traces. Report unavailable aggregate fits explicitly and allow linked exclusions to recover them.
   - Keep raw sweeps accessible when individual resonance extraction fails; require explicit exclusion before fitting the remaining measurements.
   - Clear stale properties and curves when the selected subset cannot be fitted. Test mixed-sign uploads, exclusion/restoration, malformed-upload rejection, and raw-trace access before marking complete.
+  - Completed 2026-10-26: three regression tests demonstrated the original failure before implementation. `make fresh-verify` passed at revision `dcae08c`: lint, all 29 numerical/API tests, API smoke, and Chromium checks including signed points before fitting, exclusion recovery of known g/damping values, restoration, failed raw resonance fits, and narrow-screen layouts.
+  - Verification used synthetic signed-field data; the user's actual folder, Safari, and Firefox were not tested. The perpendicular property model still uses the nonnegative resonance-field branch; signed raw data remains unchanged.
 
 - [x] Add linked dataset exclusions after plotting FMR frequency vs linewidth and FMR frequency vs field.
   - Let the user select plotted data points whose underlying raw-data fits are unreliable and apply an exclusion.
