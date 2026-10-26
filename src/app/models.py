@@ -21,9 +21,11 @@ class ResonancePoint(BaseModel):
     measurement_id: str
     filename: str
     frequency_ghz: float
-    resonance_field_oe: float
-    linewidth_pp_oe: float
-    resonance_r_squared: float
+    resonance_field_oe: float | None
+    linewidth_pp_oe: float | None
+    resonance_r_squared: float | None
+    extraction_error: str | None
+    excluded: bool
 
 
 class CurvePoint(BaseModel):
@@ -63,8 +65,10 @@ class AnalysisResponse(BaseModel):
     initial_perpendicular_field_t: float
     initial_linewidth_pp_oe: float | None
     measurements: list[ResonancePoint]
-    kittel_fit: KittelFitResult
-    linewidth_fit: LinewidthFitResult
+    included_measurement_count: int
+    kittel_fit: KittelFitResult | None
+    linewidth_fit: LinewidthFitResult | None
+    fit_error: str | None
 
 
 class TraceResponse(BaseModel):
@@ -73,9 +77,10 @@ class TraceResponse(BaseModel):
     measurement_id: str
     filename: str
     frequency_ghz: float
-    resonance_field_oe: float
-    linewidth_pp_oe: float
-    r_squared: float
+    resonance_field_oe: float | None
+    linewidth_pp_oe: float | None
+    r_squared: float | None
+    extraction_error: str | None
     field_oe: list[float]
     signal: list[float]
     fit_signal: list[float]

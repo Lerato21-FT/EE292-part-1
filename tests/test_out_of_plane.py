@@ -39,6 +39,119 @@ def write_perpendicular_dataset(tmp_path: Path) -> Path:
     return directory
 
 
+def write_mixed_field_dataset(tmp_path: Path) -> Path:
+    """Add a known negative resonance in a sweep spanning both field signs."""
+    directory = write_perpendicular_dataset(tmp_path)
+    half_width = 10 * math.sqrt(3) / 2
+    rows = []
+    for index in range(6001):
+        field = -1500 + index * 0.5
+        displacement = field + 700
+        signal = (
+            0.02 + 3 * 2 * half_width**2 * displacement / (displacement**2 + half_width**2) ** 2
+        )
+        rows.append(f"{field:.12f},{signal:.15f}")
+    (directory / "sample-OOP-12000MHz-negative.csv").write_text("\n".join(rows), encoding="utf-8")
+    return directory
+
+
+def test_mixed_field_pipeline_returns_points_before_fits_are_available(tmp_path: Path) -> None:
+    """A negative fitted resonance remains inspectable and can be excluded to recover fits."""
+    directory = write_mixed_field_dataset(tmp_path)
+    result = analyze_dataset(directory, geometry="out_of_plane")
+    assert result["kittel_fit"] is None
+    assert result["linewidth_fit"] is None
+    assert "nonnegative" in result["fit_error"]
+    first = result["measurements"][0]
+    assert first["resonance_field_oe"] == pytest.approx(-700, abs=0.1)
+    recovered = analyze_dataset(
+        directory, geometry="out_of_plane", excluded_measurement_ids=[first["measurement_id"]]
+    )
+    assert recovered["fit_error"] is None
+    assert recovered["kittel_fit"]["g_factor"] == pytest.approx(2.12, abs=0.001)
+    assert recovered["linewidth_fit"]["damping"] == pytest.approx(0.0002, rel=0.01)
+
+
+def test_mixed_field_upload_allows_inspection_exclusion_and_restoration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Accept valid signed-field CSVs and recover known properties through the HTTP API."""
+    directory = write_mixed_field_dataset(tmp_path)
+    monkeypatch.setattr(
+        api, "DATASET_STORE", DatasetStore(Path(os.environ["FMR_DATA_DIR"]), tmp_path / "uploads")
+    )
+
+    async def exercise() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=api.app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/datasets?geometry=out_of_plane",
+                files=[
+                    ("files", (p.name, p.read_bytes(), "text/csv")) for p in directory.iterdir()
+                ],
+            )
+            assert response.status_code == 200, response.text
+            original = (await client.get("/api/analysis")).json()
+            assert len(original["measurements"]) == 9
+            assert original["kittel_fit"] is None
+            assert original["linewidth_fit"] is None
+            assert "nonnegative" in original["fit_error"]
+            first = original["measurements"][0]
+            trace = (await client.get(f"/api/measurements/{first['measurement_id']}")).json()
+            assert min(trace["field_oe"]) < 0 < max(trace["field_oe"])
+            assert trace["resonance_field_oe"] == pytest.approx(-700, abs=0.1)
+            recovered = await client.get(
+                "/api/analysis", params={"excluded_measurement_ids": first["measurement_id"]}
+            )
+            assert recovered.status_code == 200
+            assert recovered.json()["fit_error"] is None
+            assert recovered.json()["kittel_fit"]["g_factor"] == pytest.approx(2.12, abs=0.001)
+            assert recovered.json()["linewidth_fit"]["damping"] == pytest.approx(0.0002, rel=0.01)
+            assert (await client.get("/api/analysis")).json() == original
+
+    asyncio.run(exercise())
+
+
+def test_unfittable_raw_sweep_remains_accessible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Finite CSV samples remain available even when they cannot define a resonance fit."""
+    monkeypatch.setattr(
+        api, "DATASET_STORE", DatasetStore(Path(os.environ["FMR_DATA_DIR"]), tmp_path)
+    )
+    directory = write_perpendicular_dataset(tmp_path)
+    filename = "sample-OOP-12000MHz-flat-field.csv"
+
+    async def exercise() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=api.app), base_url="http://test"
+        ) as client:
+            upload = await client.post(
+                "/api/datasets?geometry=out_of_plane",
+                files=[("files", (filename, b"100,1\n" * 8, "text/csv"))]
+                + [("files", (p.name, p.read_bytes(), "text/csv")) for p in directory.iterdir()],
+            )
+            assert upload.status_code == 200, upload.text
+            analysis = (await client.get("/api/analysis")).json()
+            assert analysis["kittel_fit"] is None
+            assert analysis["included_measurement_count"] == 9
+            assert "Resonance fitting failed" in analysis["fit_error"]
+            assert analysis["measurements"][0]["resonance_field_oe"] is None
+            assert "distinct" in analysis["measurements"][0]["extraction_error"]
+            trace = (await client.get(f"/api/measurements/{filename}")).json()
+            assert trace["field_oe"] == [100.0] * 8
+            assert trace["fit_signal"] == []
+            assert "distinct" in trace["extraction_error"]
+            recovered = (
+                await client.get("/api/analysis", params={"excluded_measurement_ids": filename})
+            ).json()
+            assert recovered["fit_error"] is None
+            assert recovered["included_measurement_count"] == 8
+            assert recovered["kittel_fit"]["g_factor"] == pytest.approx(2.12, abs=0.001)
+            assert recovered["linewidth_fit"]["damping"] == pytest.approx(0.0002, rel=0.01)
+
+    asyncio.run(exercise())
+
+
 @pytest.fixture
 def perpendicular_dataset(tmp_path: Path) -> Path:
     """Supply independent perpendicular sweeps to numerical and API tests."""

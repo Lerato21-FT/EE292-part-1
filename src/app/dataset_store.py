@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
 from app.models import Geometry
-from app.pipeline import analyze_dataset, list_measurement_files
+from app.pipeline import list_measurement_files, validate_dataset
 
 LOGGER = logging.getLogger(__name__)
 MAX_UPLOAD_FILES = 1000
@@ -72,7 +72,7 @@ class DatasetStore:
             try:
                 self._write_uploads(candidate_directory, uploads)
                 measurements = list_measurement_files(candidate_directory)
-                analyze_dataset(
+                validate_dataset(
                     candidate_directory,
                     initial_perpendicular_field_t,
                     geometry=geometry,

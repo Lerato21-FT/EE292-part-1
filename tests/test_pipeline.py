@@ -1,9 +1,11 @@
 import math
 import os
+import shutil
 from pathlib import Path
 
 import numpy as np
 import pytest
+from test_out_of_plane import write_perpendicular_dataset
 
 from app.pipeline import (
     BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T,
@@ -112,3 +114,55 @@ def test_broadband_dataset_analysis_returns_all_sweeps():
     assert result["kittel_fit"]["r_squared"] > 0.99
     assert result["linewidth_fit"]["damping"] == pytest.approx(0.00492, abs=0.001)
     assert len(result["kittel_fit"]["curve"]) == 300
+
+
+@pytest.mark.parametrize("geometry", ["in_plane", "out_of_plane"])
+def test_linked_exclusions_refit_both_models_and_restore_raw_data(tmp_path: Path, geometry: str):
+    directory = (
+        Path(os.environ["FMR_DATA_DIR"])
+        if geometry == "in_plane"
+        else write_perpendicular_dataset(tmp_path)
+    )
+    original = analyze_dataset(directory, geometry=geometry)
+    excluded_ids = [point["measurement_id"] for point in original["measurements"][:2]]
+    raw_before = {path.name: path.read_bytes() for path in directory.glob("*.csv")}
+    reduced = tmp_path / "reduced"
+    reduced.mkdir()
+    for filename in raw_before:
+        if filename not in excluded_ids:
+            shutil.copyfile(directory / filename, reduced / filename)
+    expected = analyze_dataset(reduced, geometry=geometry)
+
+    result = analyze_dataset(directory, geometry=geometry, excluded_measurement_ids=excluded_ids)
+
+    assert result["included_measurement_count"] == len(original["measurements"]) - 2
+    assert len(result["measurements"]) == len(original["measurements"])
+    assert [p["measurement_id"] for p in result["measurements"] if p["excluded"]] == excluded_ids
+    assert result["kittel_fit"] == expected["kittel_fit"]
+    assert result["linewidth_fit"] == expected["linewidth_fit"]
+    assert analyze_dataset(directory, geometry=geometry, excluded_measurement_ids=[]) == original
+    assert {path.name: path.read_bytes() for path in directory.glob("*.csv")} == raw_before
+
+
+def test_exclusions_reject_unknown_and_duplicate_selections():
+    directory = Path(os.environ["FMR_DATA_DIR"])
+    ids = [path.name for path in sorted(directory.glob("*.csv"))]
+    for selection, message in [
+        (["unknown.csv"], "Unknown"),
+        ([ids[0], ids[0]], "Duplicate"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            analyze_dataset(directory, excluded_measurement_ids=selection)
+
+
+def test_insufficient_included_points_remain_inspectable() -> None:
+    """Applying valid exclusions clears unavailable fits while retaining every measurement."""
+    directory = Path(os.environ["FMR_DATA_DIR"])
+    ids = [path.name for path in sorted(directory.glob("*.csv"))]
+    for selection in (ids[:-3], ids):
+        result = analyze_dataset(directory, excluded_measurement_ids=selection)
+        assert result["kittel_fit"] is None
+        assert result["linewidth_fit"] is None
+        assert "at least four" in result["fit_error"]
+        assert len(result["measurements"]) == 49
+        assert result["included_measurement_count"] == 49 - len(selection)

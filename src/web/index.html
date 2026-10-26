@@ -80,8 +80,10 @@
             <span class="eyebrow">EXTRACTED PARAMETERS</span>
             <h2>Fit summary</h2>
           </div>
-          <div class="dataset-count"><span id="sweep-count">—</span> SWEEPS ANALYZED</div>
+          <div class="dataset-count"><span id="sweep-count">—</span> SWEEPS INCLUDED</div>
         </div>
+
+        <p id="fit-status" class="fit-status" role="status" aria-live="polite" hidden></p>
 
         <div class="metric-grid">
           <article class="metric-card">
@@ -105,6 +107,19 @@
             <div id="linewidth-r2" class="metric-foot">Linewidth model R² —</div>
           </article>
         </div>
+
+        <section class="exclusion-controls panel" aria-labelledby="exclusion-heading">
+          <h3 id="exclusion-heading">Choose datasets to exclude</h3>
+          <p>Click points on either plot to select them, or use the list below. Exclusions apply to both fits. Gray crosses remain visible for restoration; raw data is preserved.</p>
+          <label for="dataset-selection">Select datasets (Ctrl / Command or Shift for multiple)</label>
+          <select id="dataset-selection" multiple size="4"></select>
+          <div class="exclusion-actions">
+            <button id="exclude-selected" class="button" type="button" disabled>Exclude selected</button>
+            <button id="restore-selected" class="button" type="button" disabled>Restore selected</button>
+            <button id="restore-all" class="button" type="button" disabled>Restore all excluded</button>
+            <span id="selection-status" role="status" aria-live="polite">0 selected · 0 excluded</span>
+          </div>
+        </section>
 
         <div class="chart-grid">
           <article class="chart-card">

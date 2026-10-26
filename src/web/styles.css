@@ -89,6 +89,14 @@ h1 span { color: var(--cyan); }
 .metric-accent .metric-value { color: var(--cyan); }
 .metric-foot { color: #8493a2; font: 10px/1.6 var(--mono); overflow-wrap: anywhere; }
 .chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 24px; }
+.exclusion-controls { margin-top: 24px; padding: 18px; }
+.fit-status { margin: 0 0 18px; padding: 14px 16px; border: 1px solid rgba(255, 156, 107, .3); border-radius: 6px; color: #ffb19f; background: rgba(255, 156, 107, .06); font: 12px/1.7 var(--sans); overflow-wrap: anywhere; }
+.exclusion-controls h3 { margin: 0; font-size: 16px; }
+.exclusion-controls p, .exclusion-controls label, #selection-status { color: var(--muted); font: 12px/1.6 var(--sans); }
+.exclusion-controls label { display: block; margin-bottom: 6px; }
+#dataset-selection { width: 100%; min-width: 0; padding: 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; font: 11px var(--mono); }
+#dataset-selection option { padding: 5px; }
+.exclusion-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
 .chart-card { padding: 17px 18px 0; min-width: 0; }
 .chart-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; min-height: 54px; }
 .chart-heading h3 { margin: 6px 0 0; font: 500 16px var(--display); letter-spacing: -.025em; }
