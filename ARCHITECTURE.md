@@ -53,6 +53,12 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   limited to 100 MB and 1000 files.
 - `pipeline.py` owns CSV parsing, resonance extraction, and both scientific
   fits. The frontend receives complete data and fit curves from the API.
+- Analysis accepts request-scoped `excluded_measurement_ids`, validated for
+  length, uniqueness and membership in the active dataset. Both aggregate
+  fits use the same included subset; damping uses its refitted g factor.
+  Responses retain every resonance point with an `excluded` flag and report
+  `included_measurement_count`. Fewer than four included measurements are
+  rejected before fitting. Raw files and raw-trace access are unaffected.
 - Errors reach the page as one plain message.
 - Analysis selects the aligned-axis in-plane Kittel model or the saturated
   perpendicular model `f = (g μB/h)(Bres − Beff,⊥)`, using the convention
@@ -67,6 +73,11 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   measurements for that geometry are loaded.
 - All scientific points, parameters and curves come from the API.
   JavaScript formats labels, displays equations and handles interaction.
+- Clicking markers on either scientific chart or using an accessible dataset
+  list selects sweep IDs. Exclude/restore controls request a new analysis;
+  selected markers are cyan and excluded markers are gray crosses in both
+  plots. A failed request leaves the previous results available. Exclusions
+  survive refits within the page and reset on reload or a successful upload.
 - Plotly charts render after their results section becomes visible, resize
   with `ResizeObserver`, and become one column below 1100 px. Equations,
   legends and axes have reserved margins. PNGs include fitted values and

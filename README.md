@@ -75,6 +75,24 @@ Their legends and axis titles have reserved space, and the chart layout
 resizes to the available width on desktop and mobile screens. Exported PNGs
 are 2000 × 1400 pixels with an opaque dark background.
 
+### Exclude unreliable sweeps
+
+After plotting, click points on either scientific plot to select datasets.
+Selected points turn cyan in both plots. You can also select datasets in the
+list above the plots, using Ctrl/Command or Shift for multiple selections.
+Choose **Exclude selected** to recalculate both fits and their magnetic
+properties using the remaining sweeps. Exclusions are linked because both
+analyses depend on the same resonance fits, including the g factor used for damping.
+
+Excluded points remain visible as gray crosses, with their status in the
+hover label, dataset list, and raw-trace selector. Their raw files are preserved.
+Select excluded points and choose **Restore selected**, or use **Restore all
+excluded**. At least four included sweeps are required; a rejected exclusion
+shows an explanation and keeps the previous results. The sweep count shows
+the number included in the fits. Exclusions survive **Re-fit dataset** in
+the current page, and reset on page reload or successful replacement upload.
+PNG exports include the gray crosses and the recalculated fit parameters.
+
 ## Models and units
 
 Each lock-in trace is fitted to a derivative Lorentzian with a linear
@@ -151,6 +169,13 @@ convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.nc
 - `GET /api/analysis?initial_perpendicular_field_t=0.9` returns extracted
   resonance points, Kittel parameters/curve, linewidth parameters/curve, and
   damping.
+- Add repeated `excluded_measurement_ids` query parameters to exclude sweep
+  IDs from both fits. All extracted measurements remain in the response with
+  an `excluded` flag; `included_measurement_count` reports the fitted subset.
+  Unknown, duplicate, empty, overly long IDs, or selections leaving fewer
+  than four included sweeps return HTTP 422. Requests support up to 1000 IDs
+  of at most 255 characters. Exclusions apply to that request only; omitting
+  them restores the complete dataset. Raw-trace endpoints remain available.
 - `GET /api/analysis?geometry=out_of_plane&initial_perpendicular_field_t=-0.4&initial_linewidth_pp_oe=10`
   explicitly selects the perpendicular model. Omitting settings uses the
   active upload's geometry and initialization. The response includes
@@ -161,7 +186,8 @@ convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.nc
 ## Verification and implementation notes
 
 `make browser` checks actual folder uploads, geometry selection, refitting,
-reload persistence, rejected-upload recovery, and PNG downloads in Chromium.
+reload persistence, rejected-upload recovery, linked exclusions from either
+plot, restoration, insufficient-data recovery, and PNG downloads in Chromium.
 It checks chart and label bounds at 1440, 1024, 768, 390, and 320 pixel widths
 for perpendicular data, and desktop/mobile widths for in-plane data.
 Screenshots and exported PNGs are saved under gitignored `artifacts/`.

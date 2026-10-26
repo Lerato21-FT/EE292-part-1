@@ -47,6 +47,11 @@ const elements = {
   initialField: document.querySelector("#initial-field"),
   initialLinewidth: document.querySelector("#initial-linewidth"),
   traceSelect: document.querySelector("#trace-select"),
+  datasetSelection: document.querySelector("#dataset-selection"),
+  excludeSelected: document.querySelector("#exclude-selected"),
+  restoreSelected: document.querySelector("#restore-selected"),
+  restoreAll: document.querySelector("#restore-all"),
+  selectionStatus: document.querySelector("#selection-status"),
 };
 
 let measurements = [];
@@ -56,6 +61,59 @@ let activeDatasetLabel = "Bundled demo data loaded";
 let busy = false;
 let traceRequest = 0;
 let traceQuery = "";
+let excludedIds = new Set();
+let selectedIds = new Set();
+let lastAnalysis = null;
+
+function updateSelectionControls() {
+  elements.datasetSelection.disabled = busy;
+  elements.excludeSelected.disabled = busy || ![...selectedIds].some((id) => !excludedIds.has(id));
+  elements.restoreSelected.disabled = busy || ![...selectedIds].some((id) => excludedIds.has(id));
+  elements.restoreAll.disabled = busy || excludedIds.size === 0;
+  elements.selectionStatus.textContent = `${selectedIds.size} selected · ${excludedIds.size} excluded from both fits`;
+  for (const option of elements.datasetSelection.options) option.selected = selectedIds.has(option.value);
+}
+
+function pointMarkers(points) {
+  return {
+    color: points.map((point) => selectedIds.has(point.measurement_id) ? colors.cyan : point.excluded ? colors.muted : colors.orange),
+    symbol: points.map((point) => point.excluded ? "x" : "circle"),
+    size: points.map((point) => selectedIds.has(point.measurement_id) ? 11 : 7),
+    line: { color: "#101923", width: 1 },
+  };
+}
+
+async function redrawSelection() {
+  updateSelectionControls();
+  await Promise.all([plotKittel(lastAnalysis), plotLinewidth(lastAnalysis)]);
+}
+
+function bindPointSelection() {
+  for (const chartId of ["kittel-chart", "linewidth-chart"]) {
+    const chart = document.getElementById(chartId);
+    chart.removeAllListeners("plotly_click");
+    chart.on("plotly_click", (event) => {
+      if (busy) return;
+      const point = event.points.find((item) => item.curveNumber === 1);
+      if (!point) return;
+      const id = point.customdata[0];
+      if (selectedIds.has(id)) selectedIds.delete(id);
+      else selectedIds.add(id);
+      redrawSelection().catch((error) => displayError(error.message));
+    });
+  }
+}
+
+async function applyExclusions(action) {
+  if (busy) return;
+  const next = new Set(excludedIds);
+  if (action === "restore-all") next.clear();
+  else for (const id of selectedIds) {
+    if (action === "exclude") next.add(id);
+    else next.delete(id);
+  }
+  await analyze(false, next);
+}
 
 function updateGeometryControls() {
   const perpendicular = geometry === "out_of_plane";
@@ -88,6 +146,7 @@ function setBusy(value) {
     button.disabled = value;
   });
   elements.results.setAttribute("aria-busy", String(value));
+  updateSelectionControls();
 }
 
 function analysisQuery() {
@@ -141,7 +200,7 @@ function plotKittel(analysis) {
         mode: "lines",
         name: "Kittel fit",
         line: { color: colors.cyan, width: 2.5 },
-        hovertemplate: "%{x:.1f} Oe · %{y:.3f} GHz<extra>Kittel fit</extra>",
+        hoverinfo: "skip",
       },
       {
         x: points.map((point) => point.resonance_field_oe),
@@ -149,9 +208,9 @@ function plotKittel(analysis) {
         type: "scatter",
         mode: "markers",
         name: "Resonance points",
-        marker: { color: colors.orange, size: 7, line: { color: "#101923", width: 1 } },
-        customdata: points.map((point) => [point.filename, point.resonance_r_squared]),
-        hovertemplate: "%{y:.3f} GHz · %{x:.1f} Oe<br>%{customdata[0]}<extra>Measured</extra>",
+        marker: pointMarkers(points),
+        customdata: points.map((point) => [point.measurement_id, point.excluded ? "Excluded from both fits" : "Included in both fits"]),
+        hovertemplate: "%{y:.3f} GHz · %{x:.1f} Oe<br>%{customdata[0]}<br>%{customdata[1]}<extra>Click to select</extra>",
       },
     ],
     {
@@ -176,6 +235,7 @@ function plotLinewidth(analysis) {
         mode: "lines",
         name: "Linear fit",
         line: { color: colors.cyan, width: 2.5 },
+        hoverinfo: "skip",
       },
       {
         x: points.map((point) => point.frequency_ghz),
@@ -183,9 +243,9 @@ function plotLinewidth(analysis) {
         type: "scatter",
         mode: "markers",
         name: "Measured linewidth",
-        marker: { color: colors.orange, size: 7, line: { color: "#101923", width: 1 } },
-        customdata: points.map((point) => [point.filename, point.resonance_r_squared]),
-        hovertemplate: "%{x:.3f} GHz · %{y:.2f} Oe<br>%{customdata[0]}<extra>Measured</extra>",
+        marker: pointMarkers(points),
+        customdata: points.map((point) => [point.measurement_id, point.excluded ? "Excluded from both fits" : "Included in both fits"]),
+        hovertemplate: "%{x:.3f} GHz · %{y:.2f} Oe<br>%{customdata[0]}<br>%{customdata[1]}<extra>Click to select</extra>",
       },
     ],
     {
@@ -201,7 +261,7 @@ function plotLinewidth(analysis) {
 async function showAnalysis(analysis) {
   const kittel = analysis.kittel_fit;
   const linewidth = analysis.linewidth_fit;
-  document.querySelector("#sweep-count").textContent = String(analysis.measurements.length).padStart(2, "0");
+  document.querySelector("#sweep-count").textContent = String(analysis.included_measurement_count).padStart(2, "0");
   document.querySelector("#g-factor").textContent = kittel.g_factor.toFixed(4);
   document.querySelector("#perpendicular-field").textContent = kittel.effective_perpendicular_field_t.toFixed(4);
   document.querySelector("#fourfold-field").textContent = kittel.fourfold_field_t === null ? "N/A" : kittel.fourfold_field_t.toFixed(5);
@@ -218,6 +278,7 @@ async function showAnalysis(analysis) {
     ? "Model scope. The perpendicular Kittel model assumes a saturated film with magnetization aligned to a nonnegative applied field normal to the film. Beff,⊥ = μ₀Ms − μ₀H₂⊥; a negative value means perpendicular anisotropy exceeds the demagnetizing field. It is an effective field, not intrinsic Ku. No in-plane four-fold field is inferred. The −0.4 T and 10 Oe values initialize the fits; linewidth is measured peak-to-peak from the derivative signal."
     : "Model scope. The in-plane Kittel fit assumes the aligned 0° axis. Beff,⊥ = μ₀Ms − μ₀H₂⊥ is an effective field, not intrinsic Ku; extracting Ku requires independent Ms. A single azimuth cannot establish four-fold angular symmetry. Linewidth is measured peak-to-peak from the derivative signal.";
   await Promise.all([plotKittel(analysis), plotLinewidth(analysis)]);
+  bindPointSelection();
 }
 
 async function showTrace(measurementId) {
@@ -258,7 +319,7 @@ async function showTrace(measurementId) {
     `fmr-trace-${trace.frequency_ghz.toFixed(3)}-GHz`;
 }
 
-async function analyze(restoreActiveDataset = false) {
+async function analyze(restoreActiveDataset = false, requestedExclusions = excludedIds) {
   if (busy || geometry !== activeGeometry) return;
   elements.error.hidden = true;
   elements.results.hidden = true;
@@ -266,6 +327,9 @@ async function analyze(restoreActiveDataset = false) {
   setBusy(true);
   try {
     const query = restoreActiveDataset ? new URLSearchParams() : analysisQuery();
+    if (!restoreActiveDataset) {
+      for (const id of requestedExclusions) query.append("excluded_measurement_ids", id);
+    }
     const analysis = await requestJson(
       `/api/analysis?${query}`,
     );
@@ -280,11 +344,20 @@ async function analyze(restoreActiveDataset = false) {
     }
     traceQuery = query.has("initial_linewidth_pp_oe") ? `?initial_linewidth_pp_oe=${query.get("initial_linewidth_pp_oe")}` : "";
     measurements = analysis.measurements;
+    lastAnalysis = analysis;
+    excludedIds = new Set(measurements.filter((point) => point.excluded).map((point) => point.measurement_id));
+    selectedIds.clear();
+    elements.datasetSelection.replaceChildren(...measurements.map((measurement) => {
+      const option = document.createElement("option");
+      option.value = measurement.measurement_id;
+      option.textContent = `${measurement.frequency_ghz.toFixed(3)} GHz · ${measurement.excluded ? "excluded" : "included"} · ${measurement.filename}`;
+      return option;
+    }));
     elements.traceSelect.replaceChildren(
       ...measurements.map((measurement) => {
         const option = document.createElement("option");
         option.value = measurement.measurement_id;
-        option.textContent = `${measurement.frequency_ghz.toFixed(3)} GHz`;
+        option.textContent = `${measurement.frequency_ghz.toFixed(3)} GHz${measurement.excluded ? " · excluded" : ""}`;
         return option;
       }),
     );
@@ -293,6 +366,7 @@ async function analyze(restoreActiveDataset = false) {
     await showTrace(elements.traceSelect.value);
   } catch (error) {
     displayError(error.message);
+    if (lastAnalysis && lastAnalysis.geometry === geometry) elements.results.hidden = false;
   } finally {
     elements.loading.hidden = true;
     setBusy(false);
@@ -324,6 +398,9 @@ async function uploadDataset() {
     const query = analysisQuery();
     const result = await requestJson(`/api/datasets?${query}`, { method: "POST", body: formData });
     activeGeometry = result.geometry;
+    excludedIds.clear();
+    selectedIds.clear();
+    lastAnalysis = null;
     activeDatasetLabel = `${result.measurement_count} uploaded ${geometry === "out_of_plane" ? "out-of-plane" : "in-plane"} CSV sweeps active`;
     elements.datasetStatus.textContent = activeDatasetLabel;
     setBusy(false);
@@ -353,6 +430,13 @@ async function savePlot(chartId, filename) {
 }
 
 elements.button.addEventListener("click", () => analyze());
+elements.excludeSelected.addEventListener("click", () => applyExclusions("exclude"));
+elements.restoreSelected.addEventListener("click", () => applyExclusions("restore"));
+elements.restoreAll.addEventListener("click", () => applyExclusions("restore-all"));
+elements.datasetSelection.addEventListener("change", () => {
+  selectedIds = new Set([...elements.datasetSelection.selectedOptions].map((option) => option.value));
+  redrawSelection().catch((error) => displayError(error.message));
+});
 elements.uploadButton.addEventListener("click", () => elements.datasetFolder.click());
 elements.datasetFolder.addEventListener("change", () => {
   const csvCount = Array.from(elements.datasetFolder.files).filter((file) =>

@@ -69,6 +69,7 @@ def exercise_browser() -> None:
             page.goto("http://127.0.0.1:8000")
             wait_for_results(page)
             expect(page.locator("#sweep-count")).to_have_text("49")
+            exercise_exclusions(page, 49)
             check_chart_layout(page)
             page.screenshot(path=str(ARTIFACTS / "in-plane-desktop.png"), full_page=True)
             page.get_by_role("button", name="Out-of-plane", exact=True).click()
@@ -82,6 +83,7 @@ def exercise_browser() -> None:
             expect(page.locator("#g-factor")).to_have_text("2.1200")
             expect(page.locator("#perpendicular-field")).to_have_text("-0.4000")
             expect(page.locator("#fourfold-field")).to_have_text("N/A")
+            exercise_exclusions(page, 8)
             check_chart_layout(page)
             page.screenshot(path=str(ARTIFACTS / "out-of-plane-desktop.png"), full_page=True)
 
@@ -136,6 +138,55 @@ def exercise_browser() -> None:
         "Browser checks passed: both geometries, responsive charts, "
         "uploads, refit, reload, PNG export."
     )
+
+
+def exercise_exclusions(page: Page, total: int) -> None:
+    """Select real chart markers from either plot and verify linked refits and recovery."""
+    original = page.locator("#g-factor").inner_text()
+    for chart_id in ("kittel-chart", "linewidth-chart"):
+        marker = page.locator(f"#{chart_id} .scatterlayer .trace").nth(1).locator(".point").first
+        marker.scroll_into_view_if_needed()
+        bounds = marker.bounding_box()
+        assert bounds is not None
+        # Plotly receives real pointer events on its transparent drag layer above the SVG markers.
+        page.mouse.click(bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2)
+        expect(page.locator("#selection-status")).to_contain_text("1 selected")
+        page.locator("#exclude-selected").click()
+        wait_for_results(page)
+        expect(page.locator("#sweep-count")).to_have_text(str(total - 1).zfill(2))
+        expect(page.locator("#selection-status")).to_contain_text("1 excluded")
+        for linked_chart in ("kittel-chart", "linewidth-chart"):
+            assert page.locator(f"#{linked_chart}").evaluate(
+                "chart => chart.data[1].marker.symbol[0]"
+            ) == "x"
+        expect(page.locator("#trace-select option").first).to_contain_text("excluded")
+        check_chart_layout(page)
+        page.locator("#analyze-button").click()
+        wait_for_results(page)
+        expect(page.locator("#sweep-count")).to_have_text(str(total - 1).zfill(2))
+        page.locator("#restore-all").click()
+        wait_for_results(page)
+        expect(page.locator("#g-factor")).to_have_text(original)
+        expect(page.locator("#sweep-count")).to_have_text(str(total).zfill(2))
+
+    # Keyboard-accessible dataset selection also supports bulk exclusions.
+    options = page.locator("#dataset-selection option").evaluate_all(
+        "options => options.map(option => option.value)"
+    )
+    page.locator("#dataset-selection").select_option(options[:-3])
+    page.locator("#exclude-selected").click()
+    expect(page.locator("#error-message")).to_contain_text("at least four", timeout=60000)
+    expect(page.locator("#exclude-selected")).to_be_enabled()
+    expect(page.locator("#results")).to_be_visible()
+    expect(page.locator("#sweep-count")).to_have_text(str(total).zfill(2))
+    page.locator("#dataset-selection").select_option(options[:1])
+    page.locator("#exclude-selected").click()
+    wait_for_results(page)
+    page.locator("#dataset-selection").select_option(options[:1])
+    page.locator("#restore-selected").click()
+    wait_for_results(page)
+    expect(page.locator("#g-factor")).to_have_text(original)
+    expect(page.locator("#sweep-count")).to_have_text(str(total).zfill(2))
 
 
 def main() -> None:
