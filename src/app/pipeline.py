@@ -310,7 +310,10 @@ def _frequency_from_filename(filename: str) -> float:
     match = FREQUENCY_PATTERN.search(filename)
     if match is None:
         raise ValueError(f"Cannot find a frequency in measurement filename {filename!r}.")
-    return float(match.group(1)) / 1000.0
+    frequency = float(match.group(1)) / 1000.0
+    if not math.isfinite(frequency) or frequency <= 0:
+        raise ValueError(f"Measurement frequency must be finite and positive: {filename}.")
+    return frequency
 
 
 def list_measurement_files(directory: Path) -> list[tuple[str, float]]:
@@ -357,6 +360,83 @@ def load_measurement(directory: Path, filename: str) -> Measurement:
     return Measurement(filename, filename, frequency_ghz, field, signal)
 
 
+def _analysis_settings(
+    geometry: Geometry,
+    initial_perpendicular_field_t: float | None,
+    initial_linewidth_pp_oe: float | None,
+) -> tuple[float, float | None]:
+    """Resolve and validate settings independently of whether physical fits succeed."""
+    if geometry not in {"in_plane", "out_of_plane"}:
+        raise ValueError("Geometry must be in_plane or out_of_plane.")
+    if initial_perpendicular_field_t is None:
+        initial_perpendicular_field_t = -0.4 if geometry == "out_of_plane" else 0.9
+    minimum = -2 if geometry == "out_of_plane" else 0
+    if (
+        not math.isfinite(initial_perpendicular_field_t)
+        or not minimum <= initial_perpendicular_field_t <= 2
+    ):
+        raise ValueError(
+            f"Initial effective perpendicular field must be between {minimum} and 2 T."
+        )
+    if initial_linewidth_pp_oe is None and geometry == "out_of_plane":
+        initial_linewidth_pp_oe = 10.0
+    if initial_linewidth_pp_oe is not None and (
+        not math.isfinite(initial_linewidth_pp_oe) or not 0 < initial_linewidth_pp_oe <= 10000
+    ):
+        raise ValueError(
+            "Initial peak-to-peak linewidth must be finite and between 0 and 10000 Oe."
+        )
+    return initial_perpendicular_field_t, initial_linewidth_pp_oe
+
+
+def validate_dataset(
+    directory: Path,
+    initial_perpendicular_field_t: float | None = None,
+    *,
+    geometry: Geometry = "in_plane",
+    initial_linewidth_pp_oe: float | None = None,
+) -> None:
+    """Validate settings and every CSV without requiring a successful scientific fit."""
+    _analysis_settings(geometry, initial_perpendicular_field_t, initial_linewidth_pp_oe)
+    for filename, _ in list_measurement_files(directory):
+        load_measurement(directory, filename)
+
+
+def _extract_resonance(
+    measurement: Measurement, initial_linewidth_pp_oe: float | None
+) -> tuple[ResonanceFit | None, str | None]:
+    """Preserve a failed extraction as an explicit error alongside the raw measurement."""
+    try:
+        return (
+            fit_derivative_signal(
+                measurement.field_oe, measurement.signal, initial_linewidth_pp_oe
+            ),
+            None,
+        )
+    except ValueError as error:
+        return None, str(error)
+
+
+def analyze_trace(
+    directory: Path, measurement_id: str, initial_linewidth_pp_oe: float | None = None
+) -> dict[str, object]:
+    """Return raw samples even when a derivative resonance cannot be fitted."""
+    measurement = load_measurement(directory, measurement_id)
+    fit, error = _extract_resonance(measurement, initial_linewidth_pp_oe)
+    return {
+        "measurement_id": measurement.measurement_id,
+        "filename": measurement.filename,
+        "frequency_ghz": measurement.frequency_ghz,
+        "resonance_field_oe": fit.center_oe if fit else None,
+        "linewidth_pp_oe": fit.linewidth_pp_oe if fit else None,
+        "r_squared": fit.r_squared if fit else None,
+        "extraction_error": error,
+        "field_oe": measurement.field_oe,
+        "signal": measurement.signal,
+        "fit_signal": fit.signal_fit if fit else [],
+    }
+
+
 def analyze_dataset(
     directory: Path,
     initial_perpendicular_field_t: float | None = None,
@@ -365,43 +445,95 @@ def analyze_dataset(
     initial_linewidth_pp_oe: float | None = None,
     excluded_measurement_ids: list[str] | None = None,
 ) -> dict[str, object]:
-    """Extract resonances, fit the Kittel model and calculate linewidth damping."""
-    if geometry not in {"in_plane", "out_of_plane"}:
-        raise ValueError("Geometry must be in_plane or out_of_plane.")
-    if initial_perpendicular_field_t is None:
-        initial_perpendicular_field_t = -0.4 if geometry == "out_of_plane" else 0.9
-    if initial_linewidth_pp_oe is None and geometry == "out_of_plane":
-        initial_linewidth_pp_oe = 10.0
+    """Return inspectable sweeps, with linked property fits or an explicit fit error."""
+    initial_perpendicular_field_t, initial_linewidth_pp_oe = _analysis_settings(
+        geometry, initial_perpendicular_field_t, initial_linewidth_pp_oe
+    )
     files = list_measurement_files(directory)
     excluded = set(excluded_measurement_ids or [])
     if len(excluded) != len(excluded_measurement_ids or []):
         raise ValueError("Duplicate excluded measurement IDs are not allowed.")
     if excluded - {filename for filename, _ in files}:
         raise ValueError("Unknown excluded measurement ID; select a dataset from the active plots.")
-    if len(files) - len(excluded) < 4:
-        raise ValueError(
-            "Both magnetic-property fits need at least four included measurements. "
-            "Restore datasets or exclude fewer points; the previous results remain unchanged."
-        )
     measurements = [load_measurement(directory, filename) for filename, _ in files]
     resonance_fits = [
-        (
-            measurement,
-            fit_derivative_signal(
-                measurement.field_oe, measurement.signal, initial_linewidth_pp_oe
-            ),
-        )
+        (measurement, *_extract_resonance(measurement, initial_linewidth_pp_oe))
         for measurement in measurements
     ]
     included_fits = [
-        (measurement, fit)
-        for measurement, fit in resonance_fits
+        (measurement, fit, error)
+        for measurement, fit, error in resonance_fits
         if measurement.measurement_id not in excluded
     ]
+    result = {
+        "geometry": geometry,
+        "initial_perpendicular_field_t": initial_perpendicular_field_t,
+        "initial_linewidth_pp_oe": initial_linewidth_pp_oe,
+        "included_measurement_count": len(included_fits),
+        "measurements": [
+            {
+                "measurement_id": measurement.measurement_id,
+                "filename": measurement.filename,
+                "frequency_ghz": measurement.frequency_ghz,
+                "resonance_field_oe": fit.center_oe if fit else None,
+                "linewidth_pp_oe": fit.linewidth_pp_oe if fit else None,
+                "resonance_r_squared": fit.r_squared if fit else None,
+                "extraction_error": error,
+                "excluded": measurement.measurement_id in excluded,
+            }
+            for measurement, fit, error in resonance_fits
+        ],
+        "kittel_fit": None,
+        "linewidth_fit": None,
+        "fit_error": None,
+    }
+    try:
+        failed = [measurement.filename for measurement, fit, _ in included_fits if fit is None]
+        if failed:
+            raise ValueError(
+                f"Resonance fitting failed for {failed[0]}"
+                f" ({len(failed)} included sweep(s)). Inspect raw traces and exclude these "
+                "datasets before fitting magnetic properties."
+            )
+        if len(included_fits) < 4:
+            raise ValueError(
+                "Both magnetic-property fits need at least four included measurements. "
+                "Restore datasets or exclude fewer points."
+            )
+        result.update(
+            _fit_magnetic_properties(
+                [(measurement, fit) for measurement, fit, _ in included_fits if fit is not None],
+                initial_perpendicular_field_t,
+                geometry,
+            )
+        )
+    except ValueError as error:
+        result["fit_error"] = str(error)
+    return result
+
+
+def _fit_magnetic_properties(
+    included_fits: list[tuple[Measurement, ResonanceFit]],
+    initial_perpendicular_field_t: float,
+    geometry: Geometry,
+) -> dict[str, object]:
+    """Fit both aggregate models against exactly the same included resonances."""
     frequencies = [measurement.frequency_ghz for measurement, _ in included_fits]
     fields = [fit.center_oe for _, fit in included_fits]
     linewidths = [fit.linewidth_pp_oe for _, fit in included_fits]
     if geometry == "out_of_plane":
+        negative = [
+            f"{measurement.filename} ({fit.center_oe:.2f} Oe)"
+            for measurement, fit in included_fits
+            if fit.center_oe < 0
+        ]
+        if negative:
+            raise ValueError(
+                "The current perpendicular model requires nonnegative resonance fields. "
+                f"Negative fitted resonances ({len(negative)}): {', '.join(negative[:3])}. "
+                "Inspect these raw sweeps and exclude the affected datasets to fit the "
+                "remaining positive-branch points. Signed fields are preserved."
+            )
         kittel = fit_out_of_plane_kittel(fields, frequencies, initial_perpendicular_field_t)
         equation = "f = (g μB/h) (Bres − Beff,⊥)"
     else:
@@ -428,22 +560,6 @@ def analyze_dataset(
         linewidth_fit.slope_oe_per_ghz * linewidth_curve_frequency + linewidth_fit.intercept_oe
     )
     return {
-        "geometry": geometry,
-        "initial_perpendicular_field_t": initial_perpendicular_field_t,
-        "initial_linewidth_pp_oe": initial_linewidth_pp_oe,
-        "included_measurement_count": len(included_fits),
-        "measurements": [
-            {
-                "measurement_id": measurement.measurement_id,
-                "filename": measurement.filename,
-                "frequency_ghz": measurement.frequency_ghz,
-                "resonance_field_oe": fit.center_oe,
-                "linewidth_pp_oe": fit.linewidth_pp_oe,
-                "resonance_r_squared": fit.r_squared,
-                "excluded": measurement.measurement_id in excluded,
-            }
-            for measurement, fit in resonance_fits
-        ],
         "kittel_fit": {
             "g_factor": kittel.g_factor,
             "effective_perpendicular_field_t": kittel.effective_perpendicular_field_t,

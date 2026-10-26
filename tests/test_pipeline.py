@@ -144,14 +144,25 @@ def test_linked_exclusions_refit_both_models_and_restore_raw_data(tmp_path: Path
     assert {path.name: path.read_bytes() for path in directory.glob("*.csv")} == raw_before
 
 
-def test_exclusions_reject_unknown_duplicate_and_insufficient_selections():
+def test_exclusions_reject_unknown_and_duplicate_selections():
     directory = Path(os.environ["FMR_DATA_DIR"])
     ids = [path.name for path in sorted(directory.glob("*.csv"))]
     for selection, message in [
         (["unknown.csv"], "Unknown"),
         ([ids[0], ids[0]], "Duplicate"),
-        (ids[:-3], "at least four"),
-        (ids, "at least four"),
     ]:
         with pytest.raises(ValueError, match=message):
             analyze_dataset(directory, excluded_measurement_ids=selection)
+
+
+def test_insufficient_included_points_remain_inspectable() -> None:
+    """Applying valid exclusions clears unavailable fits while retaining every measurement."""
+    directory = Path(os.environ["FMR_DATA_DIR"])
+    ids = [path.name for path in sorted(directory.glob("*.csv"))]
+    for selection in (ids[:-3], ids):
+        result = analyze_dataset(directory, excluded_measurement_ids=selection)
+        assert result["kittel_fit"] is None
+        assert result["linewidth_fit"] is None
+        assert "at least four" in result["fit_error"]
+        assert len(result["measurements"]) == 49
+        assert result["included_measurement_count"] == 49 - len(selection)

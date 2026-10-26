@@ -48,11 +48,18 @@ def test_analysis_api_validates_linked_exclusions_and_preserves_traces(tmp_path:
             assert result["included_measurement_count"] == 48
             assert result["measurements"][0]["excluded"] is True
             assert (await client.get(f"/api/measurements/{ids[0]}")).status_code == 200
-            for selection in (["missing.csv"], [ids[0]] * 2, ids[:-3], [""], ["x" * 256]):
+            for selection in (["missing.csv"], [ids[0]] * 2, [""], ["x" * 256], ["x"] * 1001):
                 rejected = await client.get(
                     "/api/analysis", params=[("excluded_measurement_ids", i) for i in selection]
                 )
                 assert rejected.status_code == 422, rejected.text
+            insufficient = await client.get(
+                "/api/analysis", params=[("excluded_measurement_ids", i) for i in ids[:-3]]
+            )
+            assert insufficient.status_code == 200
+            assert insufficient.json()["kittel_fit"] is None
+            assert insufficient.json()["linewidth_fit"] is None
+            assert "at least four" in insufficient.json()["fit_error"]
             assert (await client.get("/api/analysis")).json() == original
 
     asyncio.run(exercise())
