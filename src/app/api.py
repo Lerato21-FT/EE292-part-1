@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.staticfiles import StaticFiles
+from pydantic import Field
 
 from app.dataset_store import DatasetStore
 from app.models import (
@@ -118,6 +119,10 @@ def get_measurement_trace(
 @app.get("/api/analysis", response_model=AnalysisResponse)
 def get_analysis(
     geometry: Geometry | None = None,
+    excluded_measurement_ids: Annotated[
+        list[Annotated[str, Field(min_length=1, max_length=255)]] | None,
+        Query(max_length=1000),
+    ] = None,
     initial_perpendicular_field_t: float | None = Query(
         default=None, ge=-2, le=2, allow_inf_nan=False
     ),
@@ -125,7 +130,7 @@ def get_analysis(
         default=None, gt=0, le=10000, allow_inf_nan=False
     ),
 ) -> AnalysisResponse:
-    """Analyze all sweeps and fit Kittel and linewidth models."""
+    """Extract all sweeps and fit both models using the same included measurements."""
     with DATASET_STORE.active_analysis() as (
         directory,
         stored_geometry,
@@ -140,7 +145,11 @@ def get_analysis(
                 field = stored_field if field is None else field
                 linewidth = stored_linewidth if linewidth is None else linewidth
             result = analyze_dataset(
-                directory, field, geometry=selected_geometry, initial_linewidth_pp_oe=linewidth
+                directory,
+                field,
+                geometry=selected_geometry,
+                initial_linewidth_pp_oe=linewidth,
+                excluded_measurement_ids=excluded_measurement_ids,
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error

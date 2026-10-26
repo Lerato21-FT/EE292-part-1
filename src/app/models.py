@@ -24,6 +24,7 @@ class ResonancePoint(BaseModel):
     resonance_field_oe: float
     linewidth_pp_oe: float
     resonance_r_squared: float
+    excluded: bool
 
 
 class CurvePoint(BaseModel):
@@ -63,6 +64,7 @@ class AnalysisResponse(BaseModel):
     initial_perpendicular_field_t: float
     initial_linewidth_pp_oe: float | None
     measurements: list[ResonancePoint]
+    included_measurement_count: int
     kittel_fit: KittelFitResult
     linewidth_fit: LinewidthFitResult
 

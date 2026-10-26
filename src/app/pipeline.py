@@ -363,6 +363,7 @@ def analyze_dataset(
     *,
     geometry: Geometry = "in_plane",
     initial_linewidth_pp_oe: float | None = None,
+    excluded_measurement_ids: list[str] | None = None,
 ) -> dict[str, object]:
     """Extract resonances, fit the Kittel model and calculate linewidth damping."""
     if geometry not in {"in_plane", "out_of_plane"}:
@@ -371,9 +372,18 @@ def analyze_dataset(
         initial_perpendicular_field_t = -0.4 if geometry == "out_of_plane" else 0.9
     if initial_linewidth_pp_oe is None and geometry == "out_of_plane":
         initial_linewidth_pp_oe = 10.0
-    measurements = [
-        load_measurement(directory, filename) for filename, _ in list_measurement_files(directory)
-    ]
+    files = list_measurement_files(directory)
+    excluded = set(excluded_measurement_ids or [])
+    if len(excluded) != len(excluded_measurement_ids or []):
+        raise ValueError("Duplicate excluded measurement IDs are not allowed.")
+    if excluded - {filename for filename, _ in files}:
+        raise ValueError("Unknown excluded measurement ID; select a dataset from the active plots.")
+    if len(files) - len(excluded) < 4:
+        raise ValueError(
+            "Both magnetic-property fits need at least four included measurements. "
+            "Restore datasets or exclude fewer points; the previous results remain unchanged."
+        )
+    measurements = [load_measurement(directory, filename) for filename, _ in files]
     resonance_fits = [
         (
             measurement,
@@ -383,9 +393,14 @@ def analyze_dataset(
         )
         for measurement in measurements
     ]
-    frequencies = [measurement.frequency_ghz for measurement, _ in resonance_fits]
-    fields = [fit.center_oe for _, fit in resonance_fits]
-    linewidths = [fit.linewidth_pp_oe for _, fit in resonance_fits]
+    included_fits = [
+        (measurement, fit)
+        for measurement, fit in resonance_fits
+        if measurement.measurement_id not in excluded
+    ]
+    frequencies = [measurement.frequency_ghz for measurement, _ in included_fits]
+    fields = [fit.center_oe for _, fit in included_fits]
+    linewidths = [fit.linewidth_pp_oe for _, fit in included_fits]
     if geometry == "out_of_plane":
         kittel = fit_out_of_plane_kittel(fields, frequencies, initial_perpendicular_field_t)
         equation = "f = (g μB/h) (Bres − Beff,⊥)"
@@ -416,6 +431,7 @@ def analyze_dataset(
         "geometry": geometry,
         "initial_perpendicular_field_t": initial_perpendicular_field_t,
         "initial_linewidth_pp_oe": initial_linewidth_pp_oe,
+        "included_measurement_count": len(included_fits),
         "measurements": [
             {
                 "measurement_id": measurement.measurement_id,
@@ -424,6 +440,7 @@ def analyze_dataset(
                 "resonance_field_oe": fit.center_oe,
                 "linewidth_pp_oe": fit.linewidth_pp_oe,
                 "resonance_r_squared": fit.r_squared,
+                "excluded": measurement.measurement_id in excluded,
             }
             for measurement, fit in resonance_fits
         ],
