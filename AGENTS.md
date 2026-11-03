@@ -68,3 +68,5 @@ only when it earns its place, and say why.
 - The README is enough for a stranger, and ARCHITECTURE.md still describes the
   project.
 - Say what you did not verify.
+
+look at TASKS.md for today's tasks. 
