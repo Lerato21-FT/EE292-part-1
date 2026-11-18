@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import csv
+import logging
 import math
 import re
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 
 import numpy as np
@@ -13,9 +15,24 @@ from scipy.optimize import curve_fit
 
 from app.models import Geometry
 
-BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T = 13.99624555
+LOGGER = logging.getLogger(__name__)
+
+# CODATA 2018: μB/h = e/(4π mₑ) = 1.39962449361e10 Hz/T.
+BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T = 13.99624493361
 OE_TO_TESLA = 1e-4
 FREQUENCY_PATTERN = re.compile(r"-(\d+(?:\.\d+)?)MHz", re.IGNORECASE)
+MODULATION_PATTERN = re.compile(r"(\d+(?:\.\d+)?)OeRMS", re.IGNORECASE)
+
+DEFAULT_IN_PLANE_FIELD_T = 0.9
+DEFAULT_OUT_OF_PLANE_FIELD_T = -0.4
+DEFAULT_OUT_OF_PLANE_LINEWIDTH_PP_OE = 10.0
+# Resonance fits explaining less than 98 % of the signal variance are flagged for inspection.
+# The threshold and its reasoning are recorded in PROMPT.md.
+RESONANCE_R_SQUARED_THRESHOLD = 0.98
+# Peak-to-peak modulation above ΔHpp/3 measurably broadens and distorts the derivative line.
+MODULATION_LINEWIDTH_RATIO = 1.0 / 3.0
+# Fraction of a parameter's allowed range within which a fit is reported as "at a bound".
+BOUND_TOLERANCE = 1e-4
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,22 +47,30 @@ class ResonanceFit:
 
 @dataclass(frozen=True, slots=True)
 class KittelFit:
-    """Aligned-axis Kittel fit parameters and goodness of fit."""
+    """Kittel fit parameters with 1σ standard errors and goodness of fit."""
 
     g_factor: float
     effective_perpendicular_field_t: float
     fourfold_field_t: float | None
     r_squared: float
+    g_factor_sigma: float | None = None
+    effective_perpendicular_field_sigma_t: float | None = None
+    fourfold_field_sigma_t: float | None = None
+    at_bound: list[str] = dataclass_field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
 class LinewidthFit:
-    """Linear linewidth fit and derived Gilbert damping parameter."""
+    """Linear linewidth fit, derived Gilbert damping, and their 1σ standard errors."""
 
     slope_oe_per_ghz: float
     intercept_oe: float
     damping: float
     r_squared: float
+    slope_sigma_oe_per_ghz: float = 0.0
+    intercept_sigma_oe: float = 0.0
+    damping_sigma: float = 0.0
+    damping_resolved: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +82,7 @@ class Measurement:
     frequency_ghz: float
     field_oe: list[float]
     signal: list[float]
+    modulation_rms_oe: float | None = None
 
 
 class MeasurementNotFoundError(ValueError):
@@ -70,6 +96,27 @@ def _coefficient_of_determination(observed: np.ndarray, predicted: np.ndarray) -
     if total_sum == 0:
         return 1.0 if residual_sum == 0 else 0.0
     return 1.0 - residual_sum / total_sum
+
+
+def _standard_errors(covariance: np.ndarray) -> list[float | None]:
+    """Return 1σ errors from a covariance matrix, or None where it is undetermined."""
+    errors: list[float | None] = []
+    for variance in np.diag(covariance):
+        value = float(variance)
+        errors.append(math.sqrt(value) if math.isfinite(value) and value >= 0 else None)
+    return errors
+
+
+def _parameters_at_bounds(
+    names: list[str], parameters: np.ndarray, lower: list[float], upper: list[float]
+) -> list[str]:
+    """Name the parameters that ended within BOUND_TOLERANCE of their allowed range."""
+    pinned = []
+    for name, value, low, high in zip(names, parameters, lower, upper, strict=True):
+        tolerance = BOUND_TOLERANCE * (high - low)
+        if value - low <= tolerance or high - value <= tolerance:
+            pinned.append(name)
+    return pinned
 
 
 def _derivative_lorentzian(
@@ -176,9 +223,14 @@ def _kittel_frequency(
 def fit_kittel(
     field_oe: list[float],
     frequency_ghz: list[float],
-    initial_perpendicular_field_t: float = 0.9,
+    initial_perpendicular_field_t: float = DEFAULT_IN_PLANE_FIELD_T,
 ) -> KittelFit:
-    """Fit g, effective perpendicular field, and aligned-axis fourfold field."""
+    """Fit g, effective perpendicular field, and aligned-axis fourfold field.
+
+    The effective perpendicular field is bounded to 1e-5–2 T: this in-plane model cannot
+    represent a film whose perpendicular anisotropy exceeds its demagnetizing field.
+    Parameters that end at a bound are named in `at_bound`.
+    """
     field = np.asarray(field_oe, dtype=float) * OE_TO_TESLA
     frequency = np.asarray(frequency_ghz, dtype=float)
     if field.ndim != 1 or frequency.ndim != 1 or field.size != frequency.size:
@@ -189,27 +241,42 @@ def fit_kittel(
         raise ValueError("Initial perpendicular field must be between 0 and 2 T.")
     if np.any(frequency <= 0):
         raise ValueError("Resonance frequencies must be positive.")
+    if np.any(field <= 0):
+        raise ValueError("The in-plane Kittel model requires positive resonance fields.")
 
     minimum_fourfold_field = max(-0.5, -float(np.min(field)) + 1e-7)
     if minimum_fourfold_field >= 0.5:
         raise ValueError("Measured resonance fields do not support the fourfold fit range.")
+    lower = [1.0, 1e-5, minimum_fourfold_field]
+    upper = [4.0, 2.0, 0.5]
+    initial_fourfold = min(max(0.0, minimum_fourfold_field + 1e-6), 0.499)
     try:
-        parameters, _ = curve_fit(
+        parameters, covariance = curve_fit(
             _kittel_frequency,
             field,
             frequency,
-            p0=[2.0, min(max(initial_perpendicular_field_t, 1e-4), 1.999), 0.0],
-            bounds=([1.0, 1e-5, minimum_fourfold_field], [4.0, 2.0, 0.5]),
+            p0=[2.0, min(max(initial_perpendicular_field_t, 1e-4), 1.999), initial_fourfold],
+            bounds=(lower, upper),
             maxfev=50_000,
         )
     except RuntimeError as error:
         raise ValueError("Could not fit the aligned-axis Kittel model.") from error
     predicted = _kittel_frequency(field, *parameters)
+    errors = _standard_errors(covariance)
     return KittelFit(
         g_factor=float(parameters[0]),
         effective_perpendicular_field_t=float(parameters[1]),
         fourfold_field_t=float(parameters[2]),
         r_squared=_coefficient_of_determination(frequency, predicted),
+        g_factor_sigma=errors[0],
+        effective_perpendicular_field_sigma_t=errors[1],
+        fourfold_field_sigma_t=errors[2],
+        at_bound=_parameters_at_bounds(
+            ["g_factor", "effective_perpendicular_field_t", "fourfold_field_t"],
+            parameters,
+            lower,
+            upper,
+        ),
     )
 
 
@@ -223,7 +290,9 @@ def _out_of_plane_frequency(
 
 
 def fit_out_of_plane_kittel(
-    field_oe: list[float], frequency_ghz: list[float], initial_perpendicular_field_t: float = -0.4
+    field_oe: list[float],
+    frequency_ghz: list[float],
+    initial_perpendicular_field_t: float = DEFAULT_OUT_OF_PLANE_FIELD_T,
 ) -> KittelFit:
     """Fit g and signed effective field for a saturated perpendicular field sweep."""
     field = np.asarray(field_oe, dtype=float) * OE_TO_TESLA
@@ -249,23 +318,31 @@ def fit_out_of_plane_kittel(
     upper_field = min(2.0, float(np.min(field)) - 1e-8)
     initial_field = min(initial_perpendicular_field_t, upper_field - 1e-8)
     initial_field = max(-2 + 1e-8, initial_field)
+    lower = [1.0, -2.0]
+    upper = [4.0, upper_field]
     try:
-        parameters, _ = curve_fit(
+        parameters, covariance = curve_fit(
             _out_of_plane_frequency,
             field,
             frequency,
             p0=[2.0, initial_field],
-            bounds=([1.0, -2.0], [4.0, upper_field]),
+            bounds=(lower, upper),
             maxfev=50_000,
         )
     except RuntimeError as error:
         raise ValueError("Could not fit the saturated out-of-plane Kittel model.") from error
+    errors = _standard_errors(covariance)
     return KittelFit(
         g_factor=float(parameters[0]),
         effective_perpendicular_field_t=float(parameters[1]),
         fourfold_field_t=None,
         r_squared=_coefficient_of_determination(
             frequency, _out_of_plane_frequency(field, *parameters)
+        ),
+        g_factor_sigma=errors[0],
+        effective_perpendicular_field_sigma_t=errors[1],
+        at_bound=_parameters_at_bounds(
+            ["g_factor", "effective_perpendicular_field_t"], parameters, lower, upper
         ),
     )
 
@@ -274,8 +351,15 @@ def fit_linewidth(
     frequency_ghz: list[float],
     linewidth_pp_oe: list[float],
     g_factor: float,
+    g_factor_sigma: float | None = None,
 ) -> LinewidthFit:
-    """Fit peak-to-peak linewidth versus frequency and derive Gilbert damping."""
+    """Fit peak-to-peak linewidth versus frequency and derive Gilbert damping.
+
+    The slope and intercept come from ordinary least squares, with standard errors
+    from the residual variance s² = SSR/(n − 2). The damping error combines the slope
+    and g-factor errors in quadrature, treating them as independent. Damping is marked
+    unresolved when the slope is within two standard errors of zero.
+    """
     frequency = np.asarray(frequency_ghz, dtype=float)
     linewidth = np.asarray(linewidth_pp_oe, dtype=float)
     if frequency.ndim != 1 or linewidth.ndim != 1 or frequency.size != linewidth.size:
@@ -288,20 +372,44 @@ def fit_linewidth(
         raise ValueError("Linewidth fitting needs at least three finite measurements.")
     if g_factor <= 0 or not math.isfinite(g_factor):
         raise ValueError("The Landé g factor must be finite and positive.")
+    if g_factor_sigma is not None and (not math.isfinite(g_factor_sigma) or g_factor_sigma < 0):
+        raise ValueError("The g-factor uncertainty must be finite and nonnegative.")
 
-    slope, intercept = np.polyfit(frequency, linewidth, 1)
+    count = frequency.size
+    mean_frequency = float(np.mean(frequency))
+    centered = frequency - mean_frequency
+    sum_squares = float(np.sum(centered**2))
+    if sum_squares == 0:
+        raise ValueError("Linewidth fitting needs at least two distinct frequencies.")
+    slope = float(np.sum(centered * (linewidth - np.mean(linewidth))) / sum_squares)
+    intercept = float(np.mean(linewidth)) - slope * mean_frequency
     predicted = slope * frequency + intercept
+    residual_variance = float(np.sum((linewidth - predicted) ** 2)) / (count - 2)
+    slope_sigma = math.sqrt(residual_variance / sum_squares)
+    intercept_sigma = math.sqrt(residual_variance * (1 / count + mean_frequency**2 / sum_squares))
     if slope < 0:
-        raise ValueError("Fitted linewidth decreases with frequency; damping is not physical.")
+        raise ValueError(
+            f"Fitted linewidth decreases with frequency ({slope:.3g} ± {slope_sigma:.2g} Oe/GHz); "
+            "damping is not resolved by these sweeps."
+        )
 
-    slope_tesla_per_hz = float(slope) * OE_TO_TESLA / 1e9
-    gamma_over_2pi_hz_per_t = g_factor * BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T * 1e9
-    damping = slope_tesla_per_hz * math.sqrt(3.0) * gamma_over_2pi_hz_per_t / 2.0
+    # α = (√3/2) · slope · γ/2π, with the slope converted from Oe/GHz to T/Hz.
+    damping_per_slope_and_g = (
+        math.sqrt(3.0) / 2.0 * OE_TO_TESLA / 1e9 * BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T * 1e9
+    )
+    damping = damping_per_slope_and_g * slope * g_factor
+    damping_sigma = damping_per_slope_and_g * math.hypot(
+        g_factor * slope_sigma, slope * (g_factor_sigma or 0.0)
+    )
     return LinewidthFit(
-        slope_oe_per_ghz=float(slope),
-        intercept_oe=float(intercept),
+        slope_oe_per_ghz=slope,
+        intercept_oe=intercept,
         damping=damping,
         r_squared=_coefficient_of_determination(linewidth, predicted),
+        slope_sigma_oe_per_ghz=slope_sigma,
+        intercept_sigma_oe=intercept_sigma,
+        damping_sigma=damping_sigma,
+        damping_resolved=slope > 2 * slope_sigma,
     )
 
 
@@ -316,23 +424,35 @@ def _frequency_from_filename(filename: str) -> float:
     return frequency
 
 
+def _modulation_from_filename(filename: str) -> float | None:
+    """Read an optional `...N.NOeRMS...` field-modulation amplitude from a filename."""
+    match = MODULATION_PATTERN.search(filename)
+    return float(match.group(1)) if match else None
+
+
 def list_measurement_files(directory: Path) -> list[tuple[str, float]]:
     """List CSV sweeps with their parsed GHz frequencies in ascending order."""
     if not directory.is_dir():
-        raise ValueError(f"Measurement directory does not exist: {directory}")
+        LOGGER.error("Measurement directory does not exist: %s", directory)
+        raise ValueError("The measurement directory is not available.")
     files = sorted(directory.glob("*.csv"))
     if not files:
-        raise ValueError(f"No CSV measurements found in {directory}.")
+        LOGGER.error("No CSV measurements found in %s", directory)
+        raise ValueError("No CSV measurements were found in the active dataset.")
     measurements = [(path.name, _frequency_from_filename(path.name)) for path in files]
     return sorted(measurements, key=lambda item: (item[1], item[0]))
 
 
 def load_measurement(directory: Path, filename: str) -> Measurement:
-    """Load field and lock-in columns from one measurement CSV."""
+    """Load field and lock-in columns from one measurement CSV listed in `directory`."""
     available_files = {name for name, _ in list_measurement_files(directory)}
     if filename not in available_files:
         raise MeasurementNotFoundError("Unknown measurement file.")
+    return _read_measurement(directory, filename)
 
+
+def _read_measurement(directory: Path, filename: str) -> Measurement:
+    """Parse one CSV whose name has already been checked against the directory listing."""
     field: list[float] = []
     signal: list[float] = []
     path = directory / filename
@@ -357,19 +477,23 @@ def load_measurement(directory: Path, filename: str) -> Measurement:
     if len(field) < 8:
         raise ValueError(f"{filename} contains fewer than eight valid data rows.")
     frequency_ghz = _frequency_from_filename(filename)
-    return Measurement(filename, filename, frequency_ghz, field, signal)
+    return Measurement(
+        filename, filename, frequency_ghz, field, signal, _modulation_from_filename(filename)
+    )
 
 
-def _analysis_settings(
+def resolve_analysis_settings(
     geometry: Geometry,
     initial_perpendicular_field_t: float | None,
     initial_linewidth_pp_oe: float | None,
 ) -> tuple[float, float | None]:
-    """Resolve and validate settings independently of whether physical fits succeed."""
+    """Apply geometry defaults and validate settings, independently of fit success."""
     if geometry not in {"in_plane", "out_of_plane"}:
         raise ValueError("Geometry must be in_plane or out_of_plane.")
     if initial_perpendicular_field_t is None:
-        initial_perpendicular_field_t = -0.4 if geometry == "out_of_plane" else 0.9
+        initial_perpendicular_field_t = (
+            DEFAULT_OUT_OF_PLANE_FIELD_T if geometry == "out_of_plane" else DEFAULT_IN_PLANE_FIELD_T
+        )
     minimum = -2 if geometry == "out_of_plane" else 0
     if (
         not math.isfinite(initial_perpendicular_field_t)
@@ -379,7 +503,7 @@ def _analysis_settings(
             f"Initial effective perpendicular field must be between {minimum} and 2 T."
         )
     if initial_linewidth_pp_oe is None and geometry == "out_of_plane":
-        initial_linewidth_pp_oe = 10.0
+        initial_linewidth_pp_oe = DEFAULT_OUT_OF_PLANE_LINEWIDTH_PP_OE
     if initial_linewidth_pp_oe is not None and (
         not math.isfinite(initial_linewidth_pp_oe) or not 0 < initial_linewidth_pp_oe <= 10000
     ):
@@ -397,9 +521,9 @@ def validate_dataset(
     initial_linewidth_pp_oe: float | None = None,
 ) -> None:
     """Validate settings and every CSV without requiring a successful scientific fit."""
-    _analysis_settings(geometry, initial_perpendicular_field_t, initial_linewidth_pp_oe)
+    resolve_analysis_settings(geometry, initial_perpendicular_field_t, initial_linewidth_pp_oe)
     for filename, _ in list_measurement_files(directory):
-        load_measurement(directory, filename)
+        _read_measurement(directory, filename)
 
 
 def _extract_resonance(
@@ -417,6 +541,26 @@ def _extract_resonance(
         return None, str(error)
 
 
+def _is_low_quality(fit: ResonanceFit | None) -> bool:
+    """A resonance fit below the R² threshold needs a human look before it is trusted."""
+    return fit is not None and fit.r_squared < RESONANCE_R_SQUARED_THRESHOLD
+
+
+def _modulation_pp_oe(measurement: Measurement) -> float | None:
+    """Peak-to-peak amplitude of sinusoidal field modulation: 2√2 times its RMS value."""
+    if measurement.modulation_rms_oe is None:
+        return None
+    return 2.0 * math.sqrt(2.0) * measurement.modulation_rms_oe
+
+
+def _modulation_broadens(measurement: Measurement, fit: ResonanceFit | None) -> bool:
+    """True when peak-to-peak modulation exceeds MODULATION_LINEWIDTH_RATIO · ΔHpp."""
+    modulation = _modulation_pp_oe(measurement)
+    if modulation is None or fit is None:
+        return False
+    return modulation > MODULATION_LINEWIDTH_RATIO * fit.linewidth_pp_oe
+
+
 def analyze_trace(
     directory: Path, measurement_id: str, initial_linewidth_pp_oe: float | None = None
 ) -> dict[str, object]:
@@ -430,11 +574,18 @@ def analyze_trace(
         "resonance_field_oe": fit.center_oe if fit else None,
         "linewidth_pp_oe": fit.linewidth_pp_oe if fit else None,
         "r_squared": fit.r_squared if fit else None,
+        "low_quality": _is_low_quality(fit),
         "extraction_error": error,
         "field_oe": measurement.field_oe,
         "signal": measurement.signal,
         "fit_signal": fit.signal_fit if fit else [],
     }
+
+
+def _summarize_names(names: list[str]) -> str:
+    """List up to three names, then a count of the rest."""
+    shown = ", ".join(names[:3])
+    return shown if len(names) <= 3 else f"{shown} and {len(names) - 3} more"
 
 
 def analyze_dataset(
@@ -445,8 +596,8 @@ def analyze_dataset(
     initial_linewidth_pp_oe: float | None = None,
     excluded_measurement_ids: list[str] | None = None,
 ) -> dict[str, object]:
-    """Return inspectable sweeps, with linked property fits or an explicit fit error."""
-    initial_perpendicular_field_t, initial_linewidth_pp_oe = _analysis_settings(
+    """Return inspectable sweeps, property fits or explicit fit errors, and warnings."""
+    initial_perpendicular_field_t, initial_linewidth_pp_oe = resolve_analysis_settings(
         geometry, initial_perpendicular_field_t, initial_linewidth_pp_oe
     )
     files = list_measurement_files(directory)
@@ -455,7 +606,7 @@ def analyze_dataset(
         raise ValueError("Duplicate excluded measurement IDs are not allowed.")
     if excluded - {filename for filename, _ in files}:
         raise ValueError("Unknown excluded measurement ID; select a dataset from the active plots.")
-    measurements = [load_measurement(directory, filename) for filename, _ in files]
+    measurements = [_read_measurement(directory, filename) for filename, _ in files]
     resonance_fits = [
         (measurement, *_extract_resonance(measurement, initial_linewidth_pp_oe))
         for measurement in measurements
@@ -465,7 +616,8 @@ def analyze_dataset(
         for measurement, fit, error in resonance_fits
         if measurement.measurement_id not in excluded
     ]
-    result = {
+    warnings = _sweep_warnings(included_fits)
+    result: dict[str, object] = {
         "geometry": geometry,
         "initial_perpendicular_field_t": initial_perpendicular_field_t,
         "initial_linewidth_pp_oe": initial_linewidth_pp_oe,
@@ -478,6 +630,10 @@ def analyze_dataset(
                 "resonance_field_oe": fit.center_oe if fit else None,
                 "linewidth_pp_oe": fit.linewidth_pp_oe if fit else None,
                 "resonance_r_squared": fit.r_squared if fit else None,
+                "low_quality": _is_low_quality(fit),
+                "modulation_rms_oe": measurement.modulation_rms_oe,
+                "modulation_pp_oe": _modulation_pp_oe(measurement),
+                "modulation_warning": _modulation_broadens(measurement, fit),
                 "extraction_error": error,
                 "excluded": measurement.measurement_id in excluded,
             }
@@ -486,6 +642,8 @@ def analyze_dataset(
         "kittel_fit": None,
         "linewidth_fit": None,
         "fit_error": None,
+        "linewidth_fit_error": None,
+        "warnings": warnings,
     }
     try:
         failed = [measurement.filename for measurement, fit, _ in included_fits if fit is None]
@@ -505,6 +663,7 @@ def analyze_dataset(
                 [(measurement, fit) for measurement, fit, _ in included_fits if fit is not None],
                 initial_perpendicular_field_t,
                 geometry,
+                warnings,
             )
         )
     except ValueError as error:
@@ -512,12 +671,39 @@ def analyze_dataset(
     return result
 
 
+def _sweep_warnings(
+    included_fits: list[tuple[Measurement, ResonanceFit | None, str | None]],
+) -> list[str]:
+    """Explain per-sweep quality concerns among the measurements used by the fits."""
+    warnings = []
+    low_quality = [m.filename for m, fit, _ in included_fits if _is_low_quality(fit)]
+    if low_quality:
+        warnings.append(
+            f"{len(low_quality)} included sweep(s) have resonance R² below "
+            f"{RESONANCE_R_SQUARED_THRESHOLD}: {_summarize_names(low_quality)}. Inspect their "
+            "raw traces and exclude them if the line shape is not a single resonance."
+        )
+    broadened = [m.filename for m, fit, _ in included_fits if _modulation_broadens(m, fit)]
+    if broadened:
+        warnings.append(
+            f"{len(broadened)} included sweep(s) have peak-to-peak field modulation above "
+            f"ΔHpp/3: {_summarize_names(broadened)}. Modulation broadening may bias their "
+            "linewidths, ΔH0 and damping."
+        )
+    return warnings
+
+
 def _fit_magnetic_properties(
     included_fits: list[tuple[Measurement, ResonanceFit]],
     initial_perpendicular_field_t: float,
     geometry: Geometry,
+    warnings: list[str],
 ) -> dict[str, object]:
-    """Fit both aggregate models against exactly the same included resonances."""
+    """Fit the Kittel model, then the linewidth model, against the same included resonances.
+
+    A failed linewidth fit is reported in `linewidth_fit_error` and does not discard a
+    successful Kittel fit. New warnings are appended to `warnings`.
+    """
     frequencies = [measurement.frequency_ghz for measurement, _ in included_fits]
     fields = [fit.center_oe for _, fit in included_fits]
     linewidths = [fit.linewidth_pp_oe for _, fit in included_fits]
@@ -537,9 +723,25 @@ def _fit_magnetic_properties(
         kittel = fit_out_of_plane_kittel(fields, frequencies, initial_perpendicular_field_t)
         equation = "f = (g μB/h) (Bres − Beff,⊥)"
     else:
+        nonpositive = [
+            f"{measurement.filename} ({fit.center_oe:.2f} Oe)"
+            for measurement, fit in included_fits
+            if fit.center_oe <= 0
+        ]
+        if nonpositive:
+            raise ValueError(
+                "The in-plane Kittel model requires positive resonance fields. "
+                f"Zero or negative fitted resonances ({len(nonpositive)}): "
+                f"{', '.join(nonpositive[:3])}. Inspect these raw sweeps and exclude the "
+                "affected datasets to fit the remaining points. Signed fields are preserved."
+            )
         kittel = fit_kittel(fields, frequencies, initial_perpendicular_field_t)
         equation = "f = (g μB/h) √[(Bres + B4)(Bres + B4 + Beff,⊥)]"
-    linewidth_fit = fit_linewidth(frequencies, linewidths, kittel.g_factor)
+    if kittel.at_bound:
+        warnings.append(
+            f"Kittel parameter(s) at a fit bound: {', '.join(kittel.at_bound)}. A value at a "
+            "bound is a limit of the model, not a measurement; check the geometry and seed."
+        )
 
     field_min, field_max = min(fields), max(fields)
     field_curve = np.linspace(field_min, field_max, 300)
@@ -554,34 +756,58 @@ def _fit_magnetic_properties(
             kittel.effective_perpendicular_field_t,
             kittel.fourfold_field_t,
         )
-    frequency_min, frequency_max = min(frequencies), max(frequencies)
-    linewidth_curve_frequency = np.linspace(frequency_min, frequency_max, 200)
-    linewidth_curve = (
-        linewidth_fit.slope_oe_per_ghz * linewidth_curve_frequency + linewidth_fit.intercept_oe
-    )
-    return {
+    result: dict[str, object] = {
         "kittel_fit": {
             "g_factor": kittel.g_factor,
+            "g_factor_sigma": kittel.g_factor_sigma,
             "effective_perpendicular_field_t": kittel.effective_perpendicular_field_t,
+            "effective_perpendicular_field_sigma_t": kittel.effective_perpendicular_field_sigma_t,
             "fourfold_field_t": kittel.fourfold_field_t,
+            "fourfold_field_sigma_t": kittel.fourfold_field_sigma_t,
             "r_squared": kittel.r_squared,
+            "at_bound": kittel.at_bound,
             "equation": equation,
             "curve": [
                 {"field_oe": float(field), "frequency_ghz": float(frequency)}
                 for field, frequency in zip(field_curve, frequency_curve, strict=True)
             ],
         },
-        "linewidth_fit": {
-            "slope_oe_per_ghz": linewidth_fit.slope_oe_per_ghz,
-            "intercept_oe": linewidth_fit.intercept_oe,
-            "damping": linewidth_fit.damping,
-            "r_squared": linewidth_fit.r_squared,
-            "equation": "ΔHpp = ΔH0 + (4πα/√3γ)·f",
-            "curve": [
-                {"frequency_ghz": float(frequency), "linewidth_pp_oe": float(linewidth)}
-                for frequency, linewidth in zip(
-                    linewidth_curve_frequency, linewidth_curve, strict=True
-                )
-            ],
-        },
+        "linewidth_fit": None,
+        "linewidth_fit_error": None,
     }
+
+    try:
+        linewidth_fit = fit_linewidth(
+            frequencies, linewidths, kittel.g_factor, kittel.g_factor_sigma
+        )
+    except ValueError as error:
+        result["linewidth_fit_error"] = str(error)
+        return result
+    if not linewidth_fit.damping_resolved:
+        warnings.append(
+            "The linewidth slope is within two standard errors of zero; the damping value "
+            "is consistent with zero and is not resolved by these sweeps."
+        )
+    frequency_min, frequency_max = min(frequencies), max(frequencies)
+    linewidth_curve_frequency = np.linspace(frequency_min, frequency_max, 200)
+    linewidth_curve = (
+        linewidth_fit.slope_oe_per_ghz * linewidth_curve_frequency + linewidth_fit.intercept_oe
+    )
+    result["linewidth_fit"] = {
+        "slope_oe_per_ghz": linewidth_fit.slope_oe_per_ghz,
+        "slope_sigma_oe_per_ghz": linewidth_fit.slope_sigma_oe_per_ghz,
+        "intercept_oe": linewidth_fit.intercept_oe,
+        "intercept_sigma_oe": linewidth_fit.intercept_sigma_oe,
+        "damping": linewidth_fit.damping,
+        "damping_sigma": linewidth_fit.damping_sigma,
+        "damping_resolved": linewidth_fit.damping_resolved,
+        "r_squared": linewidth_fit.r_squared,
+        "equation": "ΔHpp = ΔH0 + (4πα/√3γ)·f",
+        "curve": [
+            {"frequency_ghz": float(frequency), "linewidth_pp_oe": float(linewidth)}
+            for frequency, linewidth in zip(
+                linewidth_curve_frequency, linewidth_curve, strict=True
+            )
+        ],
+    }
+    return result

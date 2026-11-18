@@ -9,3 +9,4 @@ docker/node_modules/
 docker/.venv/
 *.py[cod]
 ee292m.env
+.DS_Store

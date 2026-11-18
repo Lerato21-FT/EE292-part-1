@@ -21,6 +21,7 @@ from app.pipeline import (
     analyze_dataset,
     analyze_trace,
     list_measurement_files,
+    resolve_analysis_settings,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -91,11 +92,10 @@ def get_measurement_trace(
     """Return one raw trace and the backend-fitted resonance line."""
     with DATASET_STORE.active_analysis() as (directory, geometry, _, stored_linewidth):
         try:
-            linewidth = (
+            requested = (
                 initial_linewidth_pp_oe if initial_linewidth_pp_oe is not None else stored_linewidth
             )
-            if linewidth is None and geometry == "out_of_plane":
-                linewidth = 10.0
+            _, linewidth = resolve_analysis_settings(geometry, None, requested)
             result = analyze_trace(directory, measurement_id, linewidth)
         except MeasurementNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error

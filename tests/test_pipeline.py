@@ -5,12 +5,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from codata import BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T, OE_TO_TESLA
 from test_out_of_plane import write_perpendicular_dataset
 
+from app import pipeline
 from app.pipeline import (
-    BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T,
-    OE_TO_TESLA,
     _coefficient_of_determination,
+    _kittel_frequency,
+    _out_of_plane_frequency,
     analyze_dataset,
     fit_derivative_signal,
     fit_kittel,
@@ -82,6 +84,100 @@ def test_linewidth_fit_converts_peak_to_peak_slope_to_damping():
     assert fit.damping == pytest.approx(expected_damping, rel=1e-10)
     assert fit.slope_oe_per_ghz == pytest.approx(slope_oe_per_ghz, rel=1e-10)
     assert fit.r_squared == pytest.approx(1.0)
+
+
+def test_gyromagnetic_constant_matches_codata():
+    """μB/h must equal e/(4π mₑ); this catches the classic 28 GHz/T (γ/2π) mix-up."""
+    assert pipeline.BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T == pytest.approx(
+        BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T, rel=1e-9
+    )
+    assert BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T == pytest.approx(13.99624494, rel=1e-9)
+
+
+def test_dispersion_models_match_hand_calculated_values():
+    """Hand-evaluated anchors: g = 2, μB/h = 13.99624494 GHz/T, numbers written out in full."""
+    # Out-of-plane: f = 2 · 13.99624494 · (1.0 − 0) = 27.99248988 GHz.
+    assert _out_of_plane_frequency(np.array([1.0]), 2.0, 0.0)[0] == pytest.approx(
+        27.99248988, rel=1e-7
+    )
+    # In-plane: f = 27.99248988 · √(0.1 · 1.0) = 27.99248988 · 0.31622777 = 8.85200254 GHz.
+    assert _kittel_frequency(np.array([0.1]), 2.0, 0.9, 0.0)[0] == pytest.approx(
+        8.85200254, rel=1e-7
+    )
+
+
+def test_damping_matches_hand_calculated_value():
+    """1 Oe/GHz at g = 2: α = (√3/2) · 1e-4 T/GHz · 27.99248988 GHz/T = 0.0024242207."""
+    frequency_ghz = [5.0, 10.0, 15.0, 20.0]
+    fit = fit_linewidth(frequency_ghz, [12.0 + f for f in frequency_ghz], 2.0)
+
+    assert fit.damping == pytest.approx(0.0024242207, rel=1e-7)
+
+
+def test_linewidth_fit_reports_hand_calculated_standard_errors():
+    """Ordinary least squares on x = 1..4, y = 0, 1, 1, 3, worked by hand.
+
+    x̄ = 2.5, ȳ = 1.25, Sxx = 5, Sxy = 4.5, so slope = 0.9 and intercept = −1.0.
+    Residuals 0.1, 0.2, −0.7, 0.4 give SSR = 0.70 and s² = SSR / (n − 2) = 0.35.
+    σ_slope = √(s²/Sxx) = √0.07; σ_intercept = √(s² (1/n + x̄²/Sxx)) = √0.525.
+    With an exact g = 2, σ_α = σ_slope · 0.0024242207 per (Oe/GHz).
+    """
+    fit = fit_linewidth([1.0, 2.0, 3.0, 4.0], [0.0, 1.0, 1.0, 3.0], 2.0)
+
+    assert fit.slope_oe_per_ghz == pytest.approx(0.9)
+    assert fit.intercept_oe == pytest.approx(-1.0)
+    assert fit.slope_sigma_oe_per_ghz == pytest.approx(math.sqrt(0.07), rel=1e-9)
+    assert fit.intercept_sigma_oe == pytest.approx(math.sqrt(0.525), rel=1e-9)
+    assert fit.damping_sigma == pytest.approx(math.sqrt(0.07) * 0.0024242207, rel=1e-7)
+    assert fit.damping_resolved is True
+
+
+def test_damping_uncertainty_includes_g_factor_uncertainty():
+    """Independent relative errors add in quadrature: σ_α/α = √((σ_s/s)² + (σ_g/g)²)."""
+    fit = fit_linewidth([1.0, 2.0, 3.0, 4.0], [0.0, 1.0, 1.0, 3.0], 2.0, g_factor_sigma=0.02)
+
+    relative = math.hypot(math.sqrt(0.07) / 0.9, 0.02 / 2.0)
+    assert fit.damping_sigma == pytest.approx(fit.damping * relative, rel=1e-9)
+
+
+def test_small_positive_slope_is_flagged_as_unresolved_damping():
+    """A slope within two standard errors of zero is reported but not claimed as resolved."""
+    # By hand: slope = Sxy/Sxx = 0.45/5 = 0.09 Oe/GHz, σ_slope = √(0.4635/5) ≈ 0.30.
+    fit = fit_linewidth([1.0, 2.0, 3.0, 4.0], [0.3, 1.2, 0.0, 1.0], 2.0)
+
+    assert fit.slope_oe_per_ghz > 0
+    assert fit.slope_oe_per_ghz < 2 * fit.slope_sigma_oe_per_ghz
+    assert fit.damping_resolved is False
+
+
+def test_kittel_fit_reports_uncertainties_that_cover_the_truth():
+    """Noisy synthetic dispersion: 1σ errors are finite, positive and cover the true values."""
+    rng = np.random.default_rng(7)
+    field_t = np.linspace(0.05, 0.85, 25)
+    frequency_ghz = _known_in_plane_frequency(field_t, 2.05, 0.9, -0.02)
+    noisy = frequency_ghz + rng.normal(0.0, 0.02, field_t.size)
+
+    fit = fit_kittel(list(field_t / OE_TO_TESLA), list(noisy))
+
+    for value, sigma, truth in (
+        (fit.g_factor, fit.g_factor_sigma, 2.05),
+        (fit.effective_perpendicular_field_t, fit.effective_perpendicular_field_sigma_t, 0.9),
+        (fit.fourfold_field_t, fit.fourfold_field_sigma_t, -0.02),
+    ):
+        assert sigma is not None and 0 < sigma < 0.05
+        assert abs(value - truth) < 5 * sigma
+
+
+def _known_in_plane_frequency(
+    field_t: np.ndarray, g_factor: float, effective_field_t: float, fourfold_field_t: float
+) -> np.ndarray:
+    """Independent in-plane Kittel evaluation using the CODATA constant from `codata`."""
+    longitudinal = field_t + fourfold_field_t
+    return (
+        BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T
+        * g_factor
+        * np.sqrt(longitudinal * (longitudinal + effective_field_t))
+    )
 
 
 def test_measurement_loader_reads_first_two_columns(tmp_path: Path):
@@ -166,3 +262,24 @@ def test_insufficient_included_points_remain_inspectable() -> None:
         assert "at least four" in result["fit_error"]
         assert len(result["measurements"]) == 49
         assert result["included_measurement_count"] == 49 - len(selection)
+
+
+@pytest.mark.parametrize("create", [False, True])
+def test_dataset_errors_do_not_reveal_server_paths(tmp_path: Path, create: bool) -> None:
+    """Missing or empty measurement directories are reported without their filesystem path."""
+    directory = tmp_path / "secret-location"
+    if create:
+        directory.mkdir()
+    with pytest.raises(ValueError) as error:
+        analyze_dataset(directory)
+    assert "secret-location" not in str(error.value)
+    assert str(tmp_path) not in str(error.value)
+
+
+def test_bundled_sweeps_report_their_modulation_amplitude():
+    """Demo filenames record 2.0 Oe RMS modulation: 2√2 · 2.0 ≈ 5.66 Oe peak-to-peak."""
+    result = analyze_dataset(Path(os.environ["FMR_DATA_DIR"]))
+
+    for point in result["measurements"]:
+        assert point["modulation_rms_oe"] == 2.0
+        assert point["modulation_pp_oe"] == pytest.approx(5.656854, rel=1e-6)

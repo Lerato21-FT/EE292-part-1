@@ -18,3 +18,23 @@ Tasks are specified here. When done with a task, label it as complete. Execute t
   - Validate dataset selections at the API boundary. Test that an exclusion made from either plot affects both analyses, that restoration restores the original results, and that insufficient-data cases are handled. Demonstrate the regression test failing before implementation, then passing.
   - Completed 2026-10-26: regression run demonstrated four failures before implementation; all 21 numerical/API tests now pass. `make verify` passed in a fresh clone at revision `59254a7`, including lint, API smoke, and Chromium checks for both geometries, linked selection from either plot, restoration, insufficient-data recovery, responsive layouts, and PNG export.
   - Exclusions survive refits in the current page and reset on reload or successful replacement upload. Safari and Firefox were not verified.
+
+- [x] Address the 2026-11-16 referee review (`feedback/2026-11-16_review.md`).
+  - Done 2026-11-18 on `fix/referee-2026-11-16`. Physics tests use
+    CODATA-derived constants and hand-calculated anchors, plus a known-answer
+    in-plane dataset. Fits report 1σ errors. A failing linewidth fit no
+    longer discards the Kittel fit. Sweeps with R² < 0.98 are flagged.
+    Modulation broadening is checked. Non-positive in-plane resonances are
+    explained, and parameters at a bound are named. The smoke check and
+    `make clean` were fixed, upload-safety and 422 tests were added, and the
+    docs were updated.
+  - **Not verified:** none of the tests, `make verify` or `make fresh-verify`
+    were run. Docker Desktop was unavailable, and the owner chose to skip
+    the run. The fail-first demonstration was skipped too.
+  - Still open: tighten the golden tolerances in
+    `test_broadband_dataset_analysis_returns_all_sweeps`, which needs one
+    run to record current values. Rotating the API key from `3fee3a2` and
+    setting a git identity need the owner.
+
+- [ ] Export plotted data and fits as a text/CSV download, including the fits to
+  the raw traces (`notes/2026-11-11.md`, luyunqi 2026-10-13).

@@ -10,8 +10,10 @@ changes. The rules that apply to every task are in AGENTS.md.
   and FastAPI, with typed request and response models; `/docs` is the
   contract.
 - Frontend: static HTML and JavaScript, with no build step for our own code.
-  Plotly is vendored into the image for the scientific plots; no browser CDN
-  is used.
+  Plotly is vendored into the image for the scientific plots; the app page
+  uses no browser CDN. The exception is FastAPI's default `/docs` page, whose
+  Swagger UI scripts load from jsDelivr in the viewer's browser, so `/docs`
+  needs internet access.
 - The app runs in one development container, as the host user; browser
   validation uses a separate test container.
 
@@ -50,7 +52,10 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   every CSV and fit setting before activating it, and serializes reads against
   replacement. Geometry and fit initialization are activated atomically with
   the files and retained for later API calls and page reloads. Uploads are
-  limited to 100 MB and 1000 files.
+  limited to 100 MB and 1000 files. These limits are checked while copying
+  files Starlette has already received, so an oversized request uses memory
+  (the `/tmp` tmpfs) before it is rejected. That is accepted because the app
+  listens only on 127.0.0.1.
 - Upload validation uses `validate_dataset`: frequency metadata must be positive
   and finite, with at least eight finite numeric field/signal rows per CSV.
   Resonance extraction and aggregate fit success do not gate activation.
@@ -65,8 +70,20 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   excluded before fitting the remaining measurements.
 - A valid analysis returns all measurements even when scientific fitting is
   unavailable: both aggregate fits are null and `fit_error` explains why.
-  This includes fewer than four included sweeps, negative fitted resonances
-  unsupported by the perpendicular model, and nonphysical linewidth fits.
+  This includes fewer than four included sweeps and zero or negative fitted
+  resonances that the selected model cannot use. The linewidth fit runs
+  after, and separately from, the Kittel fit: if only it fails (for example,
+  a negative slope), `kittel_fit` is kept and `linewidth_fit_error` explains
+  why.
+- Fits report 1σ standard errors: Kittel errors from the `curve_fit`
+  covariance, linewidth errors from ordinary least squares, and the damping
+  error from slope and g errors in quadrature. `at_bound` names Kittel
+  parameters at a fit bound. Damping is `damping_resolved: false` when the
+  slope is within 2σ of zero.
+- Quality checks are computed in `pipeline.py` and returned as flags and a
+  `warnings` list: resonance R² below `RESONANCE_R_SQUARED_THRESHOLD` (0.98),
+  and peak-to-peak modulation (2√2 × the `OeRMS` value in the filename)
+  above ΔHpp/3. Flagged sweeps are never excluded automatically.
   Invalid settings, CSVs, and exclusion IDs remain HTTP 422 errors.
 - `analyze_trace` returns raw samples independently of resonance fit success;
   a failed fit has null parameters, an empty curve, and `extraction_error`.
@@ -95,6 +112,10 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   inspection. Failed extractions are labeled in the dataset and trace lists;
   their missing coordinates are not plotted. Raw traces still render with an
   unavailable-fit annotation. PNG exports also indicate unavailable fits.
+- Backend 1σ errors are formatted as "value ± σ" in cards, captions and PNG
+  annotations. Backend warnings are listed above the cards, and flagged
+  sweeps are labelled in the dataset list. A damping-only failure keeps the
+  Kittel results on screen.
 - Plotly charts render after their results section becomes visible, resize
   with `ResizeObserver`, and become one column below 1100 px. Equations,
   legends and axes have reserved margins. PNGs include fitted values and
@@ -141,8 +162,9 @@ Everyday, the only ones a user needs:
 - `verify`: check that it all works (lint, test, smoke, browser). Must pass from a
   fresh clone with only Docker, Make and git installed.
 - `clean`: return to the state of a fresh clone on a fresh computer. This
-  project's containers, images and generated files are removed; `data/raw/`
-  and `.env` are kept.
+  project's containers and both service images (browser profile included)
+  are removed, along with `artifacts/`, `.cache/` and the tool caches.
+  `data/raw/` and `.env` are kept.
 
 While developing:
 
@@ -150,8 +172,8 @@ While developing:
   files. `lint`: check the code copied into the image, changing nothing.
   Both rebuild first. `fmt`: rewrite the host source and tests into the
   standard format using explicit writable mounts for this command only.
-- `smoke`: start the app, check a real API result (not just a status code),
-  stop it again.
+- `smoke`: start the app, require a numeric g factor and damping and
+  `"fit_error":null` in a real analysis response, then stop it again.
 - `logs` and `shell`: follow the app's output; open a shell inside the
   container.
 - `browser`: build the separate browser image and run real Chromium

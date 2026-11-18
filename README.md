@@ -171,9 +171,36 @@ the g factor fitted in the selected geometry.
 Both dispersion fits need at least four resonance points. Out-of-plane
 fits require distinct resonance fields and positive frequencies. The g-factor
 bounds are 1–4; the signed out-of-plane effective field is bounded to −2–2 T
-and constrained below the smallest resonance field. Fit quality is shown as
+and constrained below the smallest resonance field. The in-plane effective
+field is bounded to 1e-5–2 T, so the in-plane model cannot represent a film
+whose perpendicular anisotropy exceeds its demagnetizing field; in-plane
+resonance fields must be positive. Fit quality is shown as
 R²; fitting a curve alone does not establish that the saturation assumptions
-hold for a real sample. The perpendicular equation and effective-field
+hold for a real sample.
+
+### Uncertainties and quality checks
+
+- **Uncertainties.** Every fitted parameter is shown as value ± 1σ. Kittel
+  errors come from the fit covariance, scaled by the residual variance.
+  Linewidth errors come from ordinary least squares with s² = SSR/(n − 2).
+  The damping error combines the slope and g errors in quadrature. These are
+  statistical errors only: they do not include systematic errors such as
+  field calibration or model choice.
+- **Damping not resolved.** If the linewidth slope is within two standard
+  errors of zero, damping is reported but marked *consistent with zero*. If
+  the slope is negative, damping is unavailable and g and Beff,⊥ are still
+  reported.
+- **Parameters at a bound.** A parameter that ends at its allowed limit is
+  named in a warning. Its value is a limit of the model, not a measurement.
+- **Low-quality resonances.** Sweeps whose derivative-Lorentzian fit has
+  R² < 0.98 are flagged in the dataset list and warnings. They are not
+  excluded automatically; inspect the raw trace and exclude them if needed.
+  The threshold is explained in `PROMPT.md`.
+- **Modulation broadening.** If a filename contains a modulation amplitude
+  such as `2.0OeRMS`, the peak-to-peak modulation 2√2·H_rms is compared with
+  each sweep's ΔHpp. A warning appears when it exceeds ΔHpp/3, because
+  larger modulation broadens and distorts the derivative line. See
+  `docs/fmr-model.md`. The perpendicular equation and effective-field
 convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.ncbi.nlm.nih.gov/articles/PMC7580010/).
 
 ## API
@@ -200,17 +227,28 @@ convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.nc
   of at most 255 characters. Exclusions apply to that request only; omitting
   them restores the complete dataset. Raw-trace endpoints remain available.
 - Valid analysis requests return HTTP 200 even when scientific fitting fails.
-  `kittel_fit` and `linewidth_fit` are both `null` and `fit_error` explains the
-  problem, including insufficient included points. Every measurement stays in
+  When no property fit is possible, `kittel_fit` and `linewidth_fit` are both
+  `null` and `fit_error` explains the problem, including insufficient included
+  points. When only the linewidth fit fails (for example, a negative slope),
+  `kittel_fit` is still returned and `linewidth_fit_error` explains why damping
+  is unavailable. Every measurement stays in
   the response; failed extractions have `null` resonance/linewidth/R² values
   and an `extraction_error`. Successful extraction and aggregate fits have
   `null` error fields. Invalid CSV data or settings still return HTTP 422.
+- Fit results carry 1σ standard errors (`*_sigma` fields), `at_bound` lists
+  Kittel parameters that ended at a fit bound, and `damping_resolved` is
+  `false` when the linewidth slope is within two standard errors of zero.
+  Each measurement has `low_quality` (resonance R² < 0.98),
+  `modulation_rms_oe`, `modulation_pp_oe` and `modulation_warning`. The
+  top-level `warnings` list explains these in words.
 - `GET /api/analysis?geometry=out_of_plane&initial_perpendicular_field_t=-0.4&initial_linewidth_pp_oe=10`
   explicitly selects the perpendicular model. Omitting settings uses the
   active upload's geometry and initialization. The response includes
   `geometry` and the initial field/linewidth used for that analysis (a `null`
   initial linewidth means adaptive initialization); invalid settings return HTTP 422.
-- `GET /docs` provides the interactive OpenAPI contract.
+- `GET /docs` provides the interactive OpenAPI contract. FastAPI's Swagger
+  page loads its own scripts from a CDN, so it needs internet access. The
+  app itself does not.
 
 ## Verification and implementation notes
 
@@ -232,6 +270,3 @@ Daily implementation records live in [`notes/`](notes/), using
 `YYYY-MM-DD.md` filenames. Each record describes behavior, scientific
 conventions, tests, and any verification limits. Start with
 [`notes/2026-10-19.md`](notes/2026-10-19.md) for the perpendicular workflow.
-
-# EE292-part-1
-Herre is where I test some of the exercises from class
