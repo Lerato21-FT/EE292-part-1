@@ -48,11 +48,24 @@ def test_analysis_api_validates_linked_exclusions_and_preserves_traces(tmp_path:
             assert result["included_measurement_count"] == 48
             assert result["measurements"][0]["excluded"] is True
             assert (await client.get(f"/api/measurements/{ids[0]}")).status_code == 200
-            for selection in (["missing.csv"], [ids[0]] * 2, [""], ["x" * 256], ["x"] * 1001):
+            # Each case names the check that must reject it, so deleting that check fails the
+            # test even if a later check would also have returned 422.
+            for selection, expected in (
+                (["missing.csv"], "Unknown excluded"),
+                ([ids[0]] * 2, "Duplicate excluded"),
+                ([""], "string_too_short"),
+                ([ids[0] + "x" * (256 - len(ids[0]))], "string_too_long"),
+                ([f"{index}.csv" for index in range(1001)], "too_long"),
+            ):
                 rejected = await client.get(
                     "/api/analysis", params=[("excluded_measurement_ids", i) for i in selection]
                 )
                 assert rejected.status_code == 422, rejected.text
+                detail = rejected.json()["detail"]
+                if isinstance(detail, str):
+                    assert expected in detail
+                else:
+                    assert [error["type"] for error in detail] == [expected]
             insufficient = await client.get(
                 "/api/analysis", params=[("excluded_measurement_ids", i) for i in ids[:-3]]
             )
