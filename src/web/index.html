@@ -84,26 +84,31 @@
         </div>
 
         <p id="fit-status" class="fit-status" role="status" aria-live="polite" hidden></p>
+        <ul id="fit-warnings" class="fit-warnings" aria-label="Fit quality warnings" hidden></ul>
 
         <div class="metric-grid">
           <article class="metric-card">
             <div class="metric-label">LANDE g-FACTOR <span>DIMENSIONLESS</span></div>
             <div id="g-factor" class="metric-value">—</div>
+            <div id="g-factor-sigma" class="metric-sigma"></div>
             <div id="kittel-r2" class="metric-foot">Kittel model R² —</div>
           </article>
           <article class="metric-card">
             <div class="metric-label">EFFECTIVE OUT-OF-PLANE FIELD <span>TESLA</span></div>
             <div id="perpendicular-field" class="metric-value">—</div>
+            <div id="perpendicular-field-sigma" class="metric-sigma"></div>
             <div class="metric-foot">μ₀M<sub>eff</sub> = μ₀M<sub>s</sub> − μ₀H<sub>2⊥</sub></div>
           </article>
           <article class="metric-card">
             <div class="metric-label">FOUR-FOLD FIELD TERM <span>TESLA</span></div>
             <div id="fourfold-field" class="metric-value">—</div>
+            <div id="fourfold-field-sigma" class="metric-sigma"></div>
             <div id="fourfold-note" class="metric-foot">Aligned-axis contribution, φ = 0°</div>
           </article>
           <article class="metric-card metric-accent">
             <div class="metric-label">GILBERT DAMPING α <span>DIMENSIONLESS</span></div>
             <div id="damping" class="metric-value">—</div>
+            <div id="damping-sigma" class="metric-sigma"></div>
             <div id="linewidth-r2" class="metric-foot">Linewidth model R² —</div>
           </article>
         </div>

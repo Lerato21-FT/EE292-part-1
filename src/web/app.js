@@ -178,6 +178,15 @@ async function requestJson(url, options) {
   return body;
 }
 
+// Formats a backend value and its backend 1σ standard error; nothing is computed here.
+function withSigma(value, sigma, format) {
+  return sigma === null || sigma === undefined ? format(value) : `${format(value)} ± ${sigma.toPrecision(2)}`;
+}
+
+function sigmaText(sigma, unit = "") {
+  return sigma === null || sigma === undefined ? "" : `± ${sigma.toPrecision(2)}${unit} (1σ)`;
+}
+
 function displayError(message) {
   elements.error.textContent = message;
   elements.error.hidden = false;
@@ -189,7 +198,7 @@ function plotKittel(analysis) {
   const equation = analysis.geometry === "out_of_plane"
     ? "f = (g μB/h)<br>× (Bres − Beff,⊥)"
     : "f = (g μB/h) √[(Bres + B4)<br>× (Bres + B4 + Beff,⊥)]";
-  const parameters = fit ? `g = ${fit.g_factor.toFixed(4)}<br>Beff,⊥ = ${fit.effective_perpendicular_field_t.toFixed(4)} T${fit.fourfold_field_t === null ? "" : `<br>B4 = ${fit.fourfold_field_t.toFixed(5)} T`}` : "";
+  const parameters = fit ? `g = ${withSigma(fit.g_factor, fit.g_factor_sigma, (v) => v.toFixed(4))}<br>Beff,⊥ = ${withSigma(fit.effective_perpendicular_field_t, fit.effective_perpendicular_field_sigma_t, (v) => v.toFixed(4))} T${fit.fourfold_field_t === null ? "" : `<br>B4 = ${withSigma(fit.fourfold_field_t, fit.fourfold_field_sigma_t, (v) => v.toFixed(5))} T`}` : "";
   const curve = fit?.curve ?? [];
   return Plotly.react(
     "kittel-chart",
@@ -255,7 +264,7 @@ function plotLinewidth(analysis) {
       ...plotLayout,
       xaxis: axis("Frequency (GHz)", plotLayout.xaxis),
       yaxis: axis("ΔHpp (Oe)", plotLayout.yaxis),
-      annotations: fitAnnotation(fit ? `ΔHpp = ΔH0 + (4πα/√3γ)·f<br>α = ${fit.damping.toPrecision(4)}<br>ΔH0 = ${fit.intercept_oe.toFixed(2)} Oe` : "Linewidth fit unavailable<br>Inspect or exclude sweeps"),
+      annotations: fitAnnotation(fit ? `ΔHpp = ΔH0 + (4πα/√3γ)·f<br>α = ${withSigma(fit.damping, fit.damping_sigma, (v) => v.toPrecision(4))}${fit.damping_resolved ? "" : " (not resolved)"}<br>ΔH0 = ${withSigma(fit.intercept_oe, fit.intercept_sigma_oe, (v) => v.toFixed(2))} Oe` : "Linewidth fit unavailable<br>Inspect or exclude sweeps"),
     },
     plotConfig,
   );
@@ -265,8 +274,21 @@ async function showAnalysis(analysis) {
   const kittel = analysis.kittel_fit;
   const linewidth = analysis.linewidth_fit;
   const fitStatus = document.querySelector("#fit-status");
-  fitStatus.hidden = !analysis.fit_error;
-  fitStatus.textContent = analysis.fit_error ? `Magnetic-property fits unavailable. ${analysis.fit_error}` : "";
+  fitStatus.hidden = !analysis.fit_error && !analysis.linewidth_fit_error;
+  fitStatus.textContent = analysis.fit_error
+    ? `Magnetic-property fits unavailable. ${analysis.fit_error}`
+    : analysis.linewidth_fit_error ? `Damping unavailable; the Kittel fit is still reported. ${analysis.linewidth_fit_error}` : "";
+  const warnings = document.querySelector("#fit-warnings");
+  warnings.replaceChildren(...analysis.warnings.map((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    return item;
+  }));
+  warnings.hidden = analysis.warnings.length === 0;
+  document.querySelector("#g-factor-sigma").textContent = sigmaText(kittel?.g_factor_sigma);
+  document.querySelector("#perpendicular-field-sigma").textContent = sigmaText(kittel?.effective_perpendicular_field_sigma_t, " T");
+  document.querySelector("#fourfold-field-sigma").textContent = sigmaText(kittel?.fourfold_field_sigma_t, " T");
+  document.querySelector("#damping-sigma").textContent = linewidth ? `${sigmaText(linewidth.damping_sigma)}${linewidth.damping_resolved ? "" : " · consistent with zero"}` : "";
   document.querySelector("#sweep-count").textContent = String(analysis.included_measurement_count).padStart(2, "0");
   document.querySelector("#g-factor").textContent = kittel?.g_factor.toFixed(4) ?? "—";
   document.querySelector("#perpendicular-field").textContent = kittel?.effective_perpendicular_field_t.toFixed(4) ?? "—";
@@ -278,8 +300,8 @@ async function showAnalysis(analysis) {
   document.querySelector("#kittel-equation").textContent = kittel?.equation ?? "Fit unavailable";
   document.querySelector("#linewidth-equation").textContent = linewidth?.equation ?? "Fit unavailable";
   document.querySelector("#kittel-model-label").textContent = analysis.geometry === "out_of_plane" ? "PERPENDICULAR KITTEL MODEL" : "ALIGNED-AXIS KITTEL MODEL";
-  document.querySelector("#kittel-fit-label").textContent = kittel ? `g = ${kittel.g_factor.toFixed(4)} · Beff,⊥ = ${kittel.effective_perpendicular_field_t.toFixed(4)} T${kittel.fourfold_field_t === null ? "" : ` · B4 = ${kittel.fourfold_field_t.toFixed(5)} T`}` : "No magnetic properties reported until both models can be fitted.";
-  document.querySelector("#linewidth-fit-label").textContent = linewidth ? `α = ${linewidth.damping.toPrecision(4)} · ΔHpp,0 = ${linewidth.intercept_oe.toFixed(2)} Oe · slope = ${linewidth.slope_oe_per_ghz.toPrecision(4)} Oe/GHz` : "No damping reported until both models can be fitted.";
+  document.querySelector("#kittel-fit-label").textContent = kittel ? `g = ${withSigma(kittel.g_factor, kittel.g_factor_sigma, (v) => v.toFixed(4))} · Beff,⊥ = ${withSigma(kittel.effective_perpendicular_field_t, kittel.effective_perpendicular_field_sigma_t, (v) => v.toFixed(4))} T${kittel.fourfold_field_t === null ? "" : ` · B4 = ${withSigma(kittel.fourfold_field_t, kittel.fourfold_field_sigma_t, (v) => v.toFixed(5))} T`} (1σ)` : "No magnetic properties reported until the Kittel model can be fitted.";
+  document.querySelector("#linewidth-fit-label").textContent = linewidth ? `α = ${withSigma(linewidth.damping, linewidth.damping_sigma, (v) => v.toPrecision(4))} · ΔHpp,0 = ${withSigma(linewidth.intercept_oe, linewidth.intercept_sigma_oe, (v) => v.toFixed(2))} Oe · slope = ${withSigma(linewidth.slope_oe_per_ghz, linewidth.slope_sigma_oe_per_ghz, (v) => v.toPrecision(4))} Oe/GHz (1σ)` : "No damping reported until the linewidth model can be fitted.";
   document.querySelector("#model-note").textContent = analysis.geometry === "out_of_plane"
     ? "Model scope. The perpendicular Kittel model assumes a saturated film with magnetization aligned to a nonnegative applied field normal to the film. Beff,⊥ = μ₀Ms − μ₀H₂⊥; a negative value means perpendicular anisotropy exceeds the demagnetizing field. It is an effective field, not intrinsic Ku. No in-plane four-fold field is inferred. The −0.4 T and 10 Oe values initialize the fits; linewidth is measured peak-to-peak from the derivative signal."
     : "Model scope. The in-plane Kittel fit assumes the aligned 0° axis. Beff,⊥ = μ₀Ms − μ₀H₂⊥ is an effective field, not intrinsic Ku; extracting Ku requires independent Ms. A single azimuth cannot establish four-fold angular symmetry. Linewidth is measured peak-to-peak from the derivative signal.";
@@ -320,7 +342,7 @@ async function showTrace(measurementId) {
     plotConfig,
   );
   document.querySelector("#trace-summary").textContent =
-    trace.extraction_error ? `${trace.frequency_ghz.toFixed(3)} GHz · Raw trace · ${trace.extraction_error}` : `${trace.frequency_ghz.toFixed(3)} GHz  ·  Hres ${trace.resonance_field_oe.toFixed(2)} Oe  ·  ΔHpp ${trace.linewidth_pp_oe.toFixed(2)} Oe  ·  trace R² ${trace.r_squared.toFixed(5)}`;
+    trace.extraction_error ? `${trace.frequency_ghz.toFixed(3)} GHz · Raw trace · ${trace.extraction_error}` : `${trace.frequency_ghz.toFixed(3)} GHz  ·  Hres ${trace.resonance_field_oe.toFixed(2)} Oe  ·  ΔHpp ${trace.linewidth_pp_oe.toFixed(2)} Oe  ·  trace R² ${trace.r_squared.toFixed(5)}${trace.low_quality ? " (below 0.98: inspect)" : ""}`;
   document.querySelector("#save-trace-button").dataset.filename =
     `fmr-trace-${trace.frequency_ghz.toFixed(3)}-GHz`;
 }
@@ -358,7 +380,8 @@ async function analyze(restoreActiveDataset = false, requestedExclusions = exclu
       const option = document.createElement("option");
       option.value = measurement.measurement_id;
       const resonance = measurement.extraction_error ? "resonance fit unavailable" : `Hres ${measurement.resonance_field_oe.toFixed(2)} Oe`;
-      option.textContent = `${measurement.frequency_ghz.toFixed(3)} GHz · ${measurement.excluded ? "excluded" : "included"} · ${resonance} · ${measurement.filename}`;
+      const flags = `${measurement.low_quality ? ` · low R² ${measurement.resonance_r_squared.toFixed(3)}` : ""}${measurement.modulation_warning ? " · modulation > ΔHpp/3" : ""}`;
+      option.textContent = `${measurement.frequency_ghz.toFixed(3)} GHz · ${measurement.excluded ? "excluded" : "included"} · ${resonance}${flags} · ${measurement.filename}`;
       return option;
     }));
     elements.traceSelect.replaceChildren(
