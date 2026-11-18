@@ -63,11 +63,15 @@ smoke:
 	trap '$(COMPOSE) down >/dev/null' EXIT; \
 	$(COMPOSE) up -d --build; \
 	for attempt in 1 2 3 4 5 6 7 8 9 10; do \
-		if curl --fail --silent http://127.0.0.1:$${FMR_PORT:-8765}/api/analysis | grep -q '"kittel_fit"'; then break; fi; \
-		if [ "$$attempt" -eq 10 ]; then echo 'API smoke check did not return a Kittel fit.'; exit 1; fi; \
+		response=$$(curl --fail --silent http://127.0.0.1:$${FMR_PORT:-8765}/api/analysis || true); \
+		if [ -n "$$response" ]; then break; fi; \
+		if [ "$$attempt" -eq 10 ]; then echo 'API smoke check: the app did not respond.'; exit 1; fi; \
 		sleep 2; \
 	done; \
-	echo 'API smoke check passed: Kittel fit returned.'
+	printf '%s' "$$response" | grep -Eq '"g_factor":[0-9]' || { echo 'API smoke check failed: no numeric g factor.'; exit 1; }; \
+	printf '%s' "$$response" | grep -Eq '"damping":[0-9]' || { echo 'API smoke check failed: no numeric damping.'; exit 1; }; \
+	printf '%s' "$$response" | grep -q '"fit_error":null' || { echo 'API smoke check failed: fit_error is set.'; exit 1; }; \
+	echo 'API smoke check passed: numeric g factor and damping, no fit error.'
 
 logs:
 	$(COMPOSE) logs -f app
@@ -76,5 +80,5 @@ shell:
 	$(COMPOSE) run --rm app /bin/sh
 
 clean:
-	$(COMPOSE) down --rmi local --volumes --remove-orphans
-	rm -rf .pytest_cache .ruff_cache
+	$(COMPOSE) --profile browser down --rmi all --volumes --remove-orphans
+	rm -rf .pytest_cache .ruff_cache artifacts .cache
