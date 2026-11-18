@@ -277,7 +277,7 @@ def test_dataset_errors_do_not_reveal_server_paths(tmp_path: Path, create: bool)
 
 
 def test_bundled_sweeps_report_their_modulation_amplitude():
-    """The demo filenames record 2.0 Oe RMS modulation, i.e. 2√2 · 2.0 ≈ 5.66 Oe peak-to-peak."""
+    """Demo filenames record 2.0 Oe RMS modulation: 2√2 · 2.0 ≈ 5.66 Oe peak-to-peak."""
     result = analyze_dataset(Path(os.environ["FMR_DATA_DIR"]))
 
     for point in result["measurements"]:

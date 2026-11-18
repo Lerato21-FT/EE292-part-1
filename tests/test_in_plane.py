@@ -15,7 +15,8 @@ FREQUENCIES_GHZ = range(5, 30, 2)
 
 def damping_slope_oe_per_ghz(damping: float, g_factor: float) -> float:
     """ΔHpp slope from ΔHpp = ΔH0 + 4πα f/(√3 γ), with γ/2π = g μB/h."""
-    return 2 * damping / (math.sqrt(3) * g_factor * BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T) / OE_TO_TESLA
+    gamma_over_2pi_ghz_per_t = g_factor * BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T
+    return 2 * damping / (math.sqrt(3) * gamma_over_2pi_ghz_per_t) / OE_TO_TESLA
 
 
 def in_plane_resonance_oe(
