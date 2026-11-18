@@ -63,3 +63,19 @@ geometry asks for a matching folder; validated uploads retain their geometry
 and initialization across a browser reload. Daily implementation and
 verification records live in `notes/YYYY-MM-DD.md`, beginning with
 `notes/2026-10-19.md`.
+
+## Fit acceptance and quality thresholds (added 2026-11-18)
+
+Suggested in peer review (luyunqi, 2026-10-13) and the referee review of
+2026-11-16. Each threshold is reported to the user, never applied silently.
+
+| Check | Threshold | Action | Why |
+|---|---|---|---|
+| Resonance fit quality | R² < 0.98 | Flag the sweep; the user decides whether to exclude it | A clean single derivative-Lorentzian line on these sweeps fits with R² near 1. Below 0.98, more than 2 % of the signal variance is unexplained, which usually means noise, a second mode, or a distorted line, and the extracted Hres and ΔHpp should be checked by eye. The flag is advisory because a real but noisy sweep can still be useful. |
+| Damping resolution | slope < 2σ_slope | Report α, marked "consistent with zero" | A slope within 2σ of zero is not a measurement of damping. |
+| Negative linewidth slope | slope < 0 | No α; g and Beff,⊥ are still reported | Negative damping is unphysical. It does not invalidate the Kittel fit. |
+| Parameter at a bound | within 1e-4 of its allowed range | Warn | A bounded value is a limit of the model, not a measured property. |
+| Modulation broadening | 2√2·H_rms > ΔHpp/3 | Warn for each sweep | Larger modulation broadens and distorts the derivative line (see `docs/fmr-model.md`). |
+
+Reported uncertainties are 1σ statistical errors from the fits. They do not
+include systematic errors.
