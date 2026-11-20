@@ -86,6 +86,32 @@ def exercise_browser() -> None:
             with page.expect_download() as download_event:
                 page.locator('[data-chart="linewidth-chart"]').click()
             download_event.value.save_as(ARTIFACTS / "fmr-linewidth-in_plane.png")
+            # Round 4: light by default, result first, a plain summary, and a dark theme.
+            expect(page.locator("html")).to_have_attribute("data-theme", "light")
+            expect(page.locator("#result-summary p")).to_have_count(3)
+            expect(page.locator("#result-summary")).to_contain_text("is not established")
+            assert page.evaluate("""() => {
+              const summary = document.querySelector('#results-summary').getBoundingClientRect();
+              const controls = document.querySelector('.controls').getBoundingClientRect();
+              return summary.top < controls.top;
+            }"""), "the fit summary must come before the controls"
+            page.get_by_role("button", name="Dark", exact=True).click()
+            expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+            page.wait_for_function(
+                "document.querySelector('#kittel-chart').layout.paper_bgcolor === '#101923'"
+            )
+            expect(page.locator("#error-message")).to_be_hidden()
+            assert page.evaluate(
+                "document.querySelector('#kittel-chart').layout.xaxis.gridcolor"
+            ).startswith("rgba(")
+            page.screenshot(path=str(ARTIFACTS / "in-plane-dark.png"), full_page=True)
+            page.reload()
+            wait_for_results(page)
+            expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+            page.get_by_role("button", name="Light", exact=True).click()
+            page.wait_for_function(
+                "document.querySelector('#kittel-chart').layout.paper_bgcolor === '#ffffff'"
+            )
             page.get_by_role("button", name="Out-of-plane", exact=True).click()
             expect(page.locator("#results")).to_be_hidden()
             expect(page.locator("#analyze-button")).to_be_disabled()

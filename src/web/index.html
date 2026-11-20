@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#0a1018">
+    <meta name="theme-color" content="#f6f8fa">
     <title>FMR / Field Analysis</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="/vendor/plotly.min.js" defer></script>
@@ -16,7 +16,13 @@
           <span class="brand-mark">F</span>
           <span>FIELDNOTES <span class="brand-slash">/</span> FMR</span>
         </a>
-        <div class="local-status"><span class="status-dot"></span> LOCAL ANALYSIS</div>
+        <div class="topbar-actions">
+          <div class="theme-toggle" role="group" aria-label="Colour theme">
+            <button type="button" data-theme-choice="light" aria-pressed="true">Light</button>
+            <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+          </div>
+          <div class="local-status"><span class="status-dot"></span> LOCAL ANALYSIS</div>
+        </div>
       </header>
 
       <section class="intro">
@@ -34,7 +40,7 @@
       <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
         <div class="about-head">
           <span class="eyebrow">A SHORT INTRODUCTION</span>
-          <button id="about-close" class="download-button" type="button" aria-label="Close the introduction">Close ✕</button>
+          <button id="about-close" class="ghost-button" type="button" aria-label="Close the introduction">Close ✕</button>
         </div>
         <h2 id="about-title">What this app measures, and why it matters</h2>
         <h3>What is ferromagnetic resonance?</h3>
@@ -55,6 +61,52 @@
           <li>Click points that look wrong, inspect their raw sweeps, and exclude them; both fits update.</li>
         </ol>
       </dialog>
+
+      <div id="error-message" class="error-message" role="alert" hidden></div>
+      <div id="loading-message" class="loading-message">Reading sweeps and fitting resonance lines…</div>
+
+      <section id="results-summary" class="results-summary" aria-labelledby="fit-summary-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">EXTRACTED PARAMETERS</span>
+            <h2 id="fit-summary-heading">Fit summary</h2>
+          </div>
+          <div class="dataset-count"><span id="sweep-count">—</span> SWEEPS INCLUDED</div>
+        </div>
+
+        <div id="result-summary" class="result-summary" aria-live="polite"></div>
+        <p id="fit-status" class="fit-status" role="status" aria-live="polite" hidden></p>
+        <ul id="fit-warnings" class="fit-warnings" aria-label="Fit quality warnings" hidden></ul>
+
+        <div class="metric-grid">
+          <article class="metric-card">
+            <div class="metric-label">LANDE g-FACTOR <span>DIMENSIONLESS</span></div>
+            <div id="g-factor" class="metric-value">—</div>
+            <div id="g-factor-sigma" class="metric-sigma"></div>
+            <div id="kittel-r2" class="metric-foot">Kittel model R² —</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label">EFFECTIVE OUT-OF-PLANE FIELD <span>TESLA</span></div>
+            <div id="perpendicular-field" class="metric-value">—</div>
+            <div id="perpendicular-field-sigma" class="metric-sigma"></div>
+            <div id="perpendicular-note" class="metric-foot">μ₀M<sub>eff</sub> = μ₀M<sub>s</sub> − μ₀H<sub>2⊥</sub></div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label">FOUR-FOLD FIELD TERM <span>TESLA</span></div>
+            <div id="fourfold-field" class="metric-value">—</div>
+            <div id="fourfold-field-sigma" class="metric-sigma"></div>
+            <div id="fourfold-note" class="metric-foot">Aligned-axis contribution, φ = 0°</div>
+          </article>
+          <article id="damping-card" class="metric-card metric-accent">
+            <div class="metric-label">GILBERT DAMPING α <span>DIMENSIONLESS</span></div>
+            <div id="damping-status" class="metric-status" hidden>NOT ESTABLISHED</div>
+            <div id="damping" class="metric-value">—</div>
+            <div id="damping-sigma" class="metric-sigma"></div>
+            <div id="linewidth-r2" class="metric-foot">Linewidth model R² —</div>
+          </article>
+        </div>
+
+      </section>
 
       <section class="controls panel">
         <div class="geometry-control">
@@ -97,52 +149,10 @@
         </div>
       </section>
 
-      <div id="error-message" class="error-message" role="alert" hidden></div>
-      <div id="loading-message" class="loading-message">Reading sweeps and fitting resonance lines…</div>
-
       <section id="results" hidden>
-        <div class="section-heading">
-          <div>
-            <span class="eyebrow">EXTRACTED PARAMETERS</span>
-            <h2>Fit summary</h2>
-          </div>
-          <div class="dataset-count"><span id="sweep-count">—</span> SWEEPS INCLUDED</div>
-        </div>
-
-        <p id="fit-status" class="fit-status" role="status" aria-live="polite" hidden></p>
-        <ul id="fit-warnings" class="fit-warnings" aria-label="Fit quality warnings" hidden></ul>
-
-        <div class="metric-grid">
-          <article class="metric-card">
-            <div class="metric-label">LANDE g-FACTOR <span>DIMENSIONLESS</span></div>
-            <div id="g-factor" class="metric-value">—</div>
-            <div id="g-factor-sigma" class="metric-sigma"></div>
-            <div id="kittel-r2" class="metric-foot">Kittel model R² —</div>
-          </article>
-          <article class="metric-card">
-            <div class="metric-label">EFFECTIVE OUT-OF-PLANE FIELD <span>TESLA</span></div>
-            <div id="perpendicular-field" class="metric-value">—</div>
-            <div id="perpendicular-field-sigma" class="metric-sigma"></div>
-            <div id="perpendicular-note" class="metric-foot">μ₀M<sub>eff</sub> = μ₀M<sub>s</sub> − μ₀H<sub>2⊥</sub></div>
-          </article>
-          <article class="metric-card">
-            <div class="metric-label">FOUR-FOLD FIELD TERM <span>TESLA</span></div>
-            <div id="fourfold-field" class="metric-value">—</div>
-            <div id="fourfold-field-sigma" class="metric-sigma"></div>
-            <div id="fourfold-note" class="metric-foot">Aligned-axis contribution, φ = 0°</div>
-          </article>
-          <article id="damping-card" class="metric-card metric-accent">
-            <div class="metric-label">GILBERT DAMPING α <span>DIMENSIONLESS</span></div>
-            <div id="damping-status" class="metric-status" hidden>NOT ESTABLISHED</div>
-            <div id="damping" class="metric-value">—</div>
-            <div id="damping-sigma" class="metric-sigma"></div>
-            <div id="linewidth-r2" class="metric-foot">Linewidth model R² —</div>
-          </article>
-        </div>
-
         <section class="exclusion-controls panel" aria-labelledby="exclusion-heading">
           <h3 id="exclusion-heading">Choose datasets to exclude</h3>
-          <p>Click points on either plot to select them, or use the list below. Exclusions apply to both fits. Gray crosses remain visible for restoration; raw data is preserved.</p>
+          <p>Click points on either plot to select them, or use the list below. Exclusions apply to both fits. Excluded points stay on the plots as gray crosses so they can be restored; raw data is preserved.</p>
           <label for="dataset-selection">Select datasets (Ctrl / Command or Shift for multiple)</label>
           <select id="dataset-selection" multiple size="4"></select>
           <div class="exclusion-actions">
@@ -152,6 +162,13 @@
             <span id="selection-status" role="status" aria-live="polite">0 selected · 0 excluded</span>
           </div>
         </section>
+
+        <ul class="color-key" aria-label="Colour key for all plots">
+          <li><span class="key-dot key-data"></span>Measured data</li>
+          <li><span class="key-line key-model"></span>Model fit</li>
+          <li><span class="key-dot key-selected"></span>Selected</li>
+          <li><span class="key-cross">✕</span>Excluded from both fits</li>
+        </ul>
 
         <div class="chart-grid">
           <article class="chart-card">

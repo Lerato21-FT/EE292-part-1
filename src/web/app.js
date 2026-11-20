@@ -1,39 +1,53 @@
-const colors = {
-  text: "#e9eef4",
-  muted: "#8c9aaa",
-  grid: "rgba(149, 168, 188, 0.13)",
-  cyan: "#64dfd0",
-  orange: "#ff9c6b",
-};
+// Plot colours come from the active theme's CSS tokens, so the plots follow Light/Dark.
+// One meaning each: data = orange, model = cyan, selected = violet, excluded = muted cross.
+function readColors() {
+  const style = getComputedStyle(document.documentElement);
+  const token = (name) => style.getPropertyValue(name).trim();
+  return {
+    text: token("--text"),
+    muted: token("--muted"),
+    // Plotly needs the comma form of rgba().
+    grid: `rgba(${token("--line-rgb").split(/\s+/).join(", ")}, 0.16)`,
+    panel: token("--panel"),
+    cyan: token("--cyan"),
+    orange: token("--orange"),
+    violet: token("--violet"),
+  };
+}
 
-const plotLayout = {
-  paper_bgcolor: "#101923",
-  plot_bgcolor: "#101923",
-  font: { family: "SFMono-Regular, Consolas, monospace", size: 11, color: colors.muted },
-  margin: { l: 74, r: 26, t: 148, b: 66 },
-  autosize: true,
-  hovermode: "closest",
-  xaxis: {
-    gridcolor: colors.grid,
-    zerolinecolor: colors.grid,
-    linecolor: colors.grid,
-    tickcolor: colors.grid,
-    automargin: true,
-    nticks: 5,
-    tickformat: ".4~g",
-  },
-  yaxis: {
-    gridcolor: colors.grid,
-    zerolinecolor: colors.grid,
-    linecolor: colors.grid,
-    tickcolor: colors.grid,
-    automargin: true,
-    nticks: 5,
-    tickformat: ".4~g",
-  },
-  legend: { orientation: "h", y: 1.02, yanchor: "bottom", x: 0, font: { size: 10 }, traceorder: "normal", entrywidth: 165, entrywidthmode: "pixels" },
-  showlegend: true,
-};
+function buildLayout() {
+  return {
+    paper_bgcolor: colors.panel,
+    plot_bgcolor: colors.panel,
+    font: { family: "SFMono-Regular, Consolas, monospace", size: 11, color: colors.muted },
+    margin: { l: 74, r: 26, t: 148, b: 66 },
+    autosize: true,
+    hovermode: "closest",
+    xaxis: {
+      gridcolor: colors.grid,
+      zerolinecolor: colors.grid,
+      linecolor: colors.grid,
+      tickcolor: colors.grid,
+      automargin: true,
+      nticks: 5,
+      tickformat: ".4~g",
+    },
+    yaxis: {
+      gridcolor: colors.grid,
+      zerolinecolor: colors.grid,
+      linecolor: colors.grid,
+      tickcolor: colors.grid,
+      automargin: true,
+      nticks: 5,
+      tickformat: ".4~g",
+    },
+    legend: { orientation: "h", y: 1.02, yanchor: "bottom", x: 0, font: { size: 10 }, traceorder: "normal", entrywidth: 165, entrywidthmode: "pixels" },
+    showlegend: true,
+  };
+}
+
+let colors = readColors();
+let plotLayout = buildLayout();
 
 // Typeset model equations. These are fixed presentation strings, never user data.
 const mi = (name) => `<mi>${name}</mi>`;
@@ -63,13 +77,14 @@ const MODEL_SCOPE = {
 };
 
 // Print-friendly styling applied only to exported PNGs; the page keeps its dark theme.
-const exportColors = { text: "#1b2430", muted: "#5b6672", grid: "#e3e8ee", line: "#0f8f84", point: "#d9622b" };
+const exportColors = { text: "#1b2430", muted: "#5b6672", grid: "#e3e8ee", line: "#0f8f84", point: "#d9622b", selected: "#6d4ad6" };
 
 const plotConfig = { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d"] };
 const elements = {
   error: document.querySelector("#error-message"),
   loading: document.querySelector("#loading-message"),
   results: document.querySelector("#results"),
+  resultsSummary: document.querySelector("#results-summary"),
   button: document.querySelector("#analyze-button"),
   uploadButton: document.querySelector("#upload-button"),
   datasetFolder: document.querySelector("#dataset-folder"),
@@ -95,6 +110,12 @@ let excludedIds = new Set();
 let selectedIds = new Set();
 let lastAnalysis = null;
 
+// The summary sits above the controls and the details below them; they show and hide together.
+function setResultsHidden(hidden) {
+  elements.results.hidden = hidden;
+  elements.resultsSummary.hidden = hidden;
+}
+
 function updateSelectionControls() {
   elements.datasetSelection.disabled = busy;
   elements.excludeSelected.disabled = busy || ![...selectedIds].some((id) => !excludedIds.has(id));
@@ -106,10 +127,10 @@ function updateSelectionControls() {
 
 function pointMarkers(points) {
   return {
-    color: points.map((point) => selectedIds.has(point.measurement_id) ? colors.cyan : point.excluded ? colors.muted : colors.orange),
+    color: points.map((point) => selectedIds.has(point.measurement_id) ? colors.violet : point.excluded ? colors.muted : colors.orange),
     symbol: points.map((point) => point.excluded ? "x" : "circle"),
     size: points.map((point) => selectedIds.has(point.measurement_id) ? 11 : 7),
-    line: { color: "#101923", width: 1 },
+    line: { color: colors.panel, width: 1 },
   };
 }
 
@@ -320,6 +341,11 @@ async function showAnalysis(analysis) {
   fitStatus.textContent = analysis.fit_error
     ? `Magnetic-property fits unavailable. ${analysis.fit_error}`
     : analysis.linewidth_fit_error ? `Damping unavailable; the Kittel fit is still reported. ${analysis.linewidth_fit_error}` : "";
+  document.querySelector("#result-summary").replaceChildren(...analysis.summary.map((text) => {
+    const sentence = document.createElement("p");
+    sentence.textContent = text;
+    return sentence;
+  }));
   const warnings = document.querySelector("#fit-warnings");
   warnings.replaceChildren(...analysis.warnings.map((text) => {
     const item = document.createElement("li");
@@ -405,7 +431,7 @@ async function showTrace(measurementId) {
 async function analyze(restoreActiveDataset = false, requestedExclusions = excludedIds) {
   if (busy || geometry !== activeGeometry) return;
   elements.error.hidden = true;
-  elements.results.hidden = true;
+  setResultsHidden(true);
   elements.loading.hidden = false;
   elements.loading.textContent = "Extracting resonance points and fitting magnetic properties…";
   setBusy(true);
@@ -447,12 +473,12 @@ async function analyze(restoreActiveDataset = false, requestedExclusions = exclu
         return option;
       }),
     );
-    elements.results.hidden = false;
+    setResultsHidden(false);
     await showAnalysis(analysis);
     await showTrace(elements.traceSelect.value);
   } catch (error) {
     displayError(error.message);
-    if (lastAnalysis && lastAnalysis.geometry === geometry) elements.results.hidden = false;
+    if (lastAnalysis && lastAnalysis.geometry === geometry) setResultsHidden(false);
   } finally {
     elements.loading.hidden = true;
     setBusy(false);
@@ -476,7 +502,7 @@ async function uploadDataset() {
   }
 
   setBusy(true);
-  elements.results.hidden = true;
+  setResultsHidden(true);
   elements.loading.hidden = false;
   elements.loading.textContent = "Validating uploaded CSV files…";
   elements.datasetStatus.textContent = `Uploading ${csvFiles.length} CSV files…`;
@@ -503,7 +529,12 @@ async function uploadDataset() {
 
 function recolor(color) {
   if (Array.isArray(color)) return color.map(recolor);
-  return { [colors.cyan]: exportColors.line, [colors.orange]: exportColors.point, [colors.muted]: "#9aa5b1" }[color] ?? color;
+  return {
+    [colors.cyan]: exportColors.line,
+    [colors.orange]: exportColors.point,
+    [colors.violet]: exportColors.selected,
+    [colors.muted]: "#9aa5b1",
+  }[color] ?? color;
 }
 
 function exportAxis(base) {
@@ -570,6 +601,42 @@ async function savePlot(chartId, filename) {
   }
 }
 
+// Light is the default theme; a choice is remembered in this browser only.
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]').content = theme === "dark" ? "#0a1018" : "#f6f8fa";
+  document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.themeChoice === theme));
+  });
+  colors = readColors();
+  plotLayout = buildLayout();
+}
+
+function storedTheme() {
+  try {
+    return localStorage.getItem("fmr-theme") === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+applyTheme(storedTheme());
+document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const theme = button.dataset.themeChoice;
+    try {
+      localStorage.setItem("fmr-theme", theme);
+    } catch {
+      // Storage can be unavailable (private window); the theme still applies for this visit.
+    }
+    applyTheme(theme);
+    if (lastAnalysis && !elements.results.hidden) {
+      Promise.all([plotKittel(lastAnalysis), plotLinewidth(lastAnalysis), showTrace(elements.traceSelect.value)])
+        .catch((error) => displayError(error.message));
+    }
+  });
+});
+
 const aboutDialog = document.querySelector("#about-dialog");
 document.querySelector("#about-button").addEventListener("click", () => aboutDialog.showModal());
 document.querySelector("#about-close").addEventListener("click", () => aboutDialog.close());
@@ -601,7 +668,7 @@ document.querySelectorAll("[data-geometry]").forEach((button) => {
     if (busy || geometry === button.dataset.geometry) return;
     geometry = button.dataset.geometry;
     ++traceRequest;
-    elements.results.hidden = true;
+    setResultsHidden(true);
     elements.error.hidden = true;
     updateGeometryControls();
     elements.datasetStatus.textContent = geometry === activeGeometry ? activeDatasetLabel : `Choose an ${geometry === "out_of_plane" ? "out-of-plane" : "in-plane"} folder to begin`;
