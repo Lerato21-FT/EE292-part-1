@@ -708,7 +708,65 @@ def analyze_dataset(
         )
     except ValueError as error:
         result["fit_error"] = str(error)
+    result["summary"] = summarize_analysis(result)
     return result
+
+
+def _with_sigma(value: float, sigma: float | None, digits: int) -> str:
+    """Format a value with its 1σ error, or the value alone when the error is undetermined."""
+    text = f"{value:.{digits}f}"
+    return text if sigma is None else f"{text} ± {sigma:.2g}"
+
+
+def summarize_analysis(result: dict[str, object]) -> list[str]:
+    """State the analysis outcome in two or three plain sentences for the page's first screen.
+
+    Every judgement here (a failed fit, damping not established, warnings raised) comes
+    from the fields already computed in `result`; nothing is re-derived.
+    """
+    count = result["included_measurement_count"]
+    geometry = "in-plane" if result["geometry"] == "in_plane" else "out-of-plane"
+    kittel = result["kittel_fit"]
+    linewidth = result["linewidth_fit"]
+    warnings = result["warnings"]
+    if kittel is None:
+        return [
+            f"No magnetic properties are reported yet for these {count} included sweeps.",
+            str(result["fit_error"]),
+        ]
+    g_text = _with_sigma(kittel["g_factor"], kittel["g_factor_sigma"], 4)
+    field_text = _with_sigma(
+        kittel["effective_perpendicular_field_t"],
+        kittel["effective_perpendicular_field_sigma_t"],
+        4,
+    )
+    fourfold = ""
+    if kittel["fourfold_field_t"] is not None:
+        fourfold_text = _with_sigma(kittel["fourfold_field_t"], kittel["fourfold_field_sigma_t"], 4)
+        fourfold = f" and B4 = {fourfold_text} T"
+    sentences = [
+        f"From {count} included sweeps, the {geometry} Kittel fit gives g = {g_text}, "
+        f"Beff,⊥ = {field_text} T{fourfold} (R² = {kittel['r_squared']:.3f})."
+    ]
+    if linewidth is None:
+        sentences.append(f"Damping is unavailable: {result['linewidth_fit_error']}")
+    else:
+        damping = f"α = {linewidth['damping']:.3g} ± {linewidth['damping_sigma']:.2g}"
+        if linewidth["damping_established"]:
+            sentences.append(
+                f"The Gilbert damping is {damping} (linewidth R² = {linewidth['r_squared']:.3f})."
+            )
+        else:
+            sentences.append(
+                f"The Gilbert damping {damping} is not established: "
+                f"{'; '.join(linewidth['damping_concerns'])}."
+            )
+    sentences.append(
+        f"Read the {len(warnings)} warning(s) below before relying on these values."
+        if warnings
+        else "No quality warnings were raised for the included sweeps."
+    )
+    return sentences
 
 
 def _sweep_warnings(
@@ -866,9 +924,7 @@ def _fit_magnetic_properties(
         "equation": "ΔHpp = ΔH0 + (4πα/√3γ)·f",
         "curve": [
             {"frequency_ghz": float(frequency), "linewidth_pp_oe": float(linewidth)}
-            for frequency, linewidth in zip(
-                linewidth_curve_frequency, linewidth_curve, strict=True
-            )
+            for frequency, linewidth in zip(linewidth_curve_frequency, linewidth_curve, strict=True)
         ],
     }
     return result

@@ -184,3 +184,45 @@ def test_modulation_broadening_condition_is_checked(
         assert point["modulation_pp_oe"] == pytest.approx(2 * math.sqrt(2) * modulation_rms_oe)
         assert point["modulation_warning"] is warned
     assert any("modulation" in warning for warning in result["warnings"]) is warned
+
+
+def test_summary_states_the_result_in_plain_sentences(tmp_path: Path) -> None:
+    """A clean dataset gets a two-part result statement and says no warnings were raised."""
+    result = analyze_dataset(write_in_plane_dataset(tmp_path / "clean"))
+
+    summary = result["summary"]
+    assert len(summary) == 3
+    assert summary[0].startswith(
+        "From 13 included sweeps, the in-plane Kittel fit gives g = 2.0500"
+    )
+    assert "B4 = -0.0150" in summary[0]
+    assert summary[1].startswith("The Gilbert damping is α = 0.004")
+    assert summary[2] == "No quality warnings were raised for the included sweeps."
+
+
+def test_summary_says_when_damping_is_not_established(tmp_path: Path) -> None:
+    """Scattered linewidths: the summary must not present α as a result."""
+    directory = write_in_plane_dataset(
+        tmp_path / "scatter",
+        linewidth=lambda f: 20.0 + 0.3 * f + (10.0 if (f // 2) % 2 else -10.0),
+    )
+
+    result = analyze_dataset(directory)
+
+    assert result["linewidth_fit"]["damping_established"] is False
+    assert "is not established" in result["summary"][1]
+    assert result["summary"][2].startswith("Read the ")
+
+
+def test_summary_explains_a_missing_fit(tmp_path: Path) -> None:
+    """When no property fit is possible, the summary says so and gives the reason."""
+    directory = write_in_plane_dataset(tmp_path / "few")
+    ids = sorted(path.name for path in directory.glob("*.csv"))
+
+    result = analyze_dataset(directory, excluded_measurement_ids=ids[:-3])
+
+    assert result["kittel_fit"] is None
+    assert result["summary"][0] == (
+        "No magnetic properties are reported yet for these 3 included sweeps."
+    )
+    assert result["summary"][1] == result["fit_error"]

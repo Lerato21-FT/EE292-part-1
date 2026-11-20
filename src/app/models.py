@@ -96,6 +96,9 @@ class AnalysisResponse(BaseModel):
         description="Why the linewidth fit alone is unavailable while the Kittel fit succeeded."
     )
     warnings: list[str]
+    summary: list[str] = Field(
+        description="Two or three plain sentences stating the outcome, built from the fields above."
+    )
 
 
 class TraceResponse(BaseModel):

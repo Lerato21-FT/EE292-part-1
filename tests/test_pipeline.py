@@ -206,14 +206,21 @@ def test_broadband_dataset_analysis_returns_all_sweeps():
     assert len(result["measurements"]) == 49
     assert result["measurements"][0]["frequency_ghz"] == 5.0
     assert result["measurements"][-1]["frequency_ghz"] == 29.0
-    assert result["kittel_fit"]["g_factor"] == pytest.approx(1.9957, abs=0.02)
-    assert result["kittel_fit"]["effective_perpendicular_field_t"] == pytest.approx(
-        0.9487, abs=0.04
-    )
-    assert result["kittel_fit"]["fourfold_field_t"] == pytest.approx(-0.02006, abs=0.01)
-    assert result["kittel_fit"]["r_squared"] > 0.99
-    assert result["linewidth_fit"]["damping"] == pytest.approx(0.00492, abs=0.001)
-    assert len(result["kittel_fit"]["curve"]) == 300
+    # Tripwire, not evidence: these are the app's own results on the bundled data,
+    # recorded on 2026-11-19 with the locked dependencies. Any change to resonance
+    # extraction, seeds, bounds or constants moves them and must be explained before
+    # the pins are updated. Tolerances (≤ 1e-5 on g, 1e-7 on α) are far below any
+    # physical change but allow for floating-point differences between CPUs.
+    # (Peer review round 4, cd24.)
+    kittel, linewidth = result["kittel_fit"], result["linewidth_fit"]
+    assert kittel["g_factor"] == pytest.approx(1.995651, abs=1e-5)
+    assert kittel["effective_perpendicular_field_t"] == pytest.approx(0.948693, abs=1e-5)
+    assert kittel["fourfold_field_t"] == pytest.approx(-0.0200575, abs=1e-6)
+    assert kittel["r_squared"] > 0.99
+    assert linewidth["damping"] == pytest.approx(0.0049245, abs=1e-7)
+    assert sum(p["low_quality"] for p in result["measurements"]) == 36
+    assert sum(p["modulation_warning"] for p in result["measurements"]) == 44
+    assert len(kittel["curve"]) == 300
 
 
 @pytest.mark.parametrize("geometry", ["in_plane", "out_of_plane"])
