@@ -18,7 +18,7 @@ from app.models import Geometry
 LOGGER = logging.getLogger(__name__)
 
 # CODATA 2018: μB/h = e/(4π mₑ) = 1.39962449361e10 Hz/T.
-BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T = 13.99624493361
+BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T = 13.9962449361
 OE_TO_TESLA = 1e-4
 FREQUENCY_PATTERN = re.compile(r"-(\d+(?:\.\d+)?)MHz", re.IGNORECASE)
 MODULATION_PATTERN = re.compile(r"(\d+(?:\.\d+)?)OeRMS", re.IGNORECASE)
@@ -33,6 +33,10 @@ RESONANCE_R_SQUARED_THRESHOLD = 0.98
 MODULATION_LINEWIDTH_RATIO = 1.0 / 3.0
 # Fraction of a parameter's allowed range within which a fit is reported as "at a bound".
 BOUND_TOLERANCE = 1e-4
+# Damping is reported as not established when the linewidth line explains less than half
+# of the linewidth variance, or when ΔH0 is negative by more than two standard errors
+# (a physical inhomogeneous linewidth cannot be negative). Reasoning in PROMPT.md.
+LINEWIDTH_R_SQUARED_THRESHOLD = 0.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +61,8 @@ class KittelFit:
     effective_perpendicular_field_sigma_t: float | None = None
     fourfold_field_sigma_t: float | None = None
     at_bound: list[str] = dataclass_field(default_factory=list)
+    mirror_effective_perpendicular_field_t: float | None = None
+    mirror_fourfold_field_t: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +77,12 @@ class LinewidthFit:
     intercept_sigma_oe: float = 0.0
     damping_sigma: float = 0.0
     damping_resolved: bool = True
+    damping_concerns: list[str] = dataclass_field(default_factory=list)
+
+    @property
+    def damping_established(self) -> bool:
+        """True when no concern undermines the damping value."""
+        return not self.damping_concerns
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +242,12 @@ def fit_kittel(
     The effective perpendicular field is bounded to 1e-5–2 T: this in-plane model cannot
     represent a film whose perpendicular anisotropy exceeds its demagnetizing field.
     Parameters that end at a bound are named in `at_bound`.
+
+    The model has an exact mirror solution: (Beff,⊥, B4) and (−Beff,⊥, B4 + Beff,⊥) give
+    the same curve, because the two field factors under the square root swap. The bound
+    Beff,⊥ > 0 always picks the first. When the mirror's B4 also lies inside the B4 fit
+    range, the data alone cannot tell the two apart, and the mirror is returned in the
+    `mirror_*` fields.
     """
     field = np.asarray(field_oe, dtype=float) * OE_TO_TESLA
     frequency = np.asarray(frequency_ghz, dtype=float)
@@ -263,6 +281,8 @@ def fit_kittel(
         raise ValueError("Could not fit the aligned-axis Kittel model.") from error
     predicted = _kittel_frequency(field, *parameters)
     errors = _standard_errors(covariance)
+    mirror_fourfold = float(parameters[2] + parameters[1])
+    mirror_is_allowed = lower[2] <= mirror_fourfold <= upper[2]
     return KittelFit(
         g_factor=float(parameters[0]),
         effective_perpendicular_field_t=float(parameters[1]),
@@ -277,6 +297,8 @@ def fit_kittel(
             lower,
             upper,
         ),
+        mirror_effective_perpendicular_field_t=-float(parameters[1]) if mirror_is_allowed else None,
+        mirror_fourfold_field_t=mirror_fourfold if mirror_is_allowed else None,
     )
 
 
@@ -359,6 +381,10 @@ def fit_linewidth(
     from the residual variance s² = SSR/(n − 2). The damping error combines the slope
     and g-factor errors in quadrature, treating them as independent. Damping is marked
     unresolved when the slope is within two standard errors of zero.
+
+    `damping_concerns` lists every reason the damping value is not established: an
+    unresolved slope, a linewidth R² below LINEWIDTH_R_SQUARED_THRESHOLD, or an
+    intercept ΔH0 that is negative by more than two standard errors.
     """
     frequency = np.asarray(frequency_ghz, dtype=float)
     linewidth = np.asarray(linewidth_pp_oe, dtype=float)
@@ -401,15 +427,29 @@ def fit_linewidth(
     damping_sigma = damping_per_slope_and_g * math.hypot(
         g_factor * slope_sigma, slope * (g_factor_sigma or 0.0)
     )
+    r_squared = _coefficient_of_determination(linewidth, predicted)
+    damping_resolved = slope > 2 * slope_sigma
+    concerns = []
+    if not damping_resolved:
+        concerns.append("the linewidth slope is within two standard errors of zero")
+    if r_squared < LINEWIDTH_R_SQUARED_THRESHOLD:
+        concerns.append(
+            f"the linewidth fit has R² = {r_squared:.3f}, below {LINEWIDTH_R_SQUARED_THRESHOLD}"
+        )
+    if intercept + 2 * intercept_sigma < 0:
+        concerns.append(
+            f"ΔH0 = {intercept:.3g} ± {intercept_sigma:.2g} Oe is negative by more than 2σ"
+        )
     return LinewidthFit(
         slope_oe_per_ghz=slope,
         intercept_oe=intercept,
         damping=damping,
-        r_squared=_coefficient_of_determination(linewidth, predicted),
+        r_squared=r_squared,
         slope_sigma_oe_per_ghz=slope_sigma,
         intercept_sigma_oe=intercept_sigma,
         damping_sigma=damping_sigma,
-        damping_resolved=slope > 2 * slope_sigma,
+        damping_resolved=damping_resolved,
+        damping_concerns=concerns,
     )
 
 
@@ -742,6 +782,15 @@ def _fit_magnetic_properties(
             f"Kittel parameter(s) at a fit bound: {', '.join(kittel.at_bound)}. A value at a "
             "bound is a limit of the model, not a measurement; check the geometry and seed."
         )
+    if kittel.mirror_effective_perpendicular_field_t is not None:
+        warnings.append(
+            "The in-plane Kittel model has a mirror solution that fits these points equally "
+            f"well: Beff,⊥ = {kittel.mirror_effective_perpendicular_field_t:.4g} T with "
+            f"B4 = {kittel.mirror_fourfold_field_t:.4g} T. The fit bounds picked "
+            f"Beff,⊥ = {kittel.effective_perpendicular_field_t:.4g} T > 0 by assumption, not "
+            "from the data; an independent measurement (out-of-plane sweeps or Ms) is "
+            "needed to choose between them."
+        )
 
     field_min, field_max = min(fields), max(fields)
     field_curve = np.linspace(field_min, field_max, 300)
@@ -766,6 +815,10 @@ def _fit_magnetic_properties(
             "fourfold_field_sigma_t": kittel.fourfold_field_sigma_t,
             "r_squared": kittel.r_squared,
             "at_bound": kittel.at_bound,
+            "mirror_effective_perpendicular_field_t": (
+                kittel.mirror_effective_perpendicular_field_t
+            ),
+            "mirror_fourfold_field_t": kittel.mirror_fourfold_field_t,
             "equation": equation,
             "curve": [
                 {"field_oe": float(field), "frequency_ghz": float(frequency)}
@@ -788,6 +841,12 @@ def _fit_magnetic_properties(
             "The linewidth slope is within two standard errors of zero; the damping value "
             "is consistent with zero and is not resolved by these sweeps."
         )
+    if not linewidth_fit.damping_established:
+        warnings.append(
+            "Damping is not established: "
+            + "; ".join(linewidth_fit.damping_concerns)
+            + ". Inspect the linewidth plot and exclude outlying sweeps before relying on α."
+        )
     frequency_min, frequency_max = min(frequencies), max(frequencies)
     linewidth_curve_frequency = np.linspace(frequency_min, frequency_max, 200)
     linewidth_curve = (
@@ -801,6 +860,8 @@ def _fit_magnetic_properties(
         "damping": linewidth_fit.damping,
         "damping_sigma": linewidth_fit.damping_sigma,
         "damping_resolved": linewidth_fit.damping_resolved,
+        "damping_established": linewidth_fit.damping_established,
+        "damping_concerns": linewidth_fit.damping_concerns,
         "r_squared": linewidth_fit.r_squared,
         "equation": "ΔHpp = ΔH0 + (4πα/√3γ)·f",
         "curve": [

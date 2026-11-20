@@ -122,14 +122,32 @@ def test_decreasing_linewidth_keeps_the_kittel_fit(tmp_path: Path) -> None:
     assert "decreases" in result["linewidth_fit_error"]
 
 
-def test_parameter_pinned_at_a_bound_is_reported(tmp_path: Path) -> None:
-    """A film with Beff,⊥ < 0 cannot be represented in-plane; the bound must be flagged."""
+def test_mirror_solution_is_reported_for_a_negative_effective_field(tmp_path: Path) -> None:
+    """Beff,⊥ = −0.1 T, B4 = 0 has the exact mirror Beff,⊥ = +0.1 T, B4 = −0.1 T.
+
+    The bounds pick the mirror with R² = 1, so no parameter is at a bound. The pipeline
+    must name the other solution instead of presenting the pick as a measurement.
+    """
     directory = write_in_plane_dataset(tmp_path / "pma", effective_field_t=-0.1, fourfold_field_t=0)
 
     result = analyze_dataset(directory)
 
-    assert "effective_perpendicular_field_t" in result["kittel_fit"]["at_bound"]
-    assert any("bound" in warning for warning in result["warnings"])
+    kittel = result["kittel_fit"]
+    assert kittel["effective_perpendicular_field_t"] == pytest.approx(0.1, abs=1e-3)
+    assert kittel["fourfold_field_t"] == pytest.approx(-0.1, abs=1e-3)
+    assert kittel["mirror_effective_perpendicular_field_t"] == pytest.approx(-0.1, abs=1e-3)
+    assert kittel["mirror_fourfold_field_t"] == pytest.approx(0.0, abs=1e-3)
+    mirror_warnings = [w for w in result["warnings"] if "mirror solution" in w]
+    assert len(mirror_warnings) == 1
+    assert "-0.1" in mirror_warnings[0]
+
+
+def test_mirror_outside_the_fourfold_range_is_not_reported(tmp_path: Path) -> None:
+    """Beff,⊥ = 0.9 T, B4 = −0.015 T: the mirror needs B4 = 0.885 T > 0.5 T, so it is ruled out."""
+    result = analyze_dataset(write_in_plane_dataset(tmp_path / "ip"))
+
+    assert result["kittel_fit"]["mirror_effective_perpendicular_field_t"] is None
+    assert not any("mirror solution" in warning for warning in result["warnings"])
 
 
 def test_poor_resonance_fits_are_flagged_but_kept(tmp_path: Path) -> None:
