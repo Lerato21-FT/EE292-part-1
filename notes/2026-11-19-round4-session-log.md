@@ -49,7 +49,7 @@ locally; not pushed yet.
 |---|---|
 | `5801cb2` | Golden pins; `summary` in the API, with three tests |
 | `dd06136` | Frontend: results first, summary, colours, light/dark, browser checks |
-| next | README, ARCHITECTURE, TASKS, this log |
+| `e3027c8` | README, ARCHITECTURE, TASKS, this log |
 
 ## 5. Verification
 
@@ -75,8 +75,8 @@ locally; not pushed yet.
     plot". This was a round 1 bug.
   - The light-mode gridlines were near-black because Plotly ignored the
     space-separated `rgb()` syntax.
-- `make fresh-verify` was run after the docs commit; see the final message
-  of the session.
+- `make fresh-verify` passed on `e3027c8`, from a new clone: lint, 64
+  tests, smoke and browser checks.
 
 ## 6. Not verified
 
