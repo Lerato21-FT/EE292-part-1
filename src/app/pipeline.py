@@ -6,6 +6,8 @@ import csv
 import logging
 import math
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -33,6 +35,8 @@ RESONANCE_R_SQUARED_THRESHOLD = 0.98
 MODULATION_LINEWIDTH_RATIO = 1.0 / 3.0
 # Fraction of a parameter's allowed range within which a fit is reported as "at a bound".
 BOUND_TOLERANCE = 1e-4
+# Most sweeps kept in the per-sweep cache; above the 1000-file upload limit plus the demo set.
+RESONANCE_CACHE_SIZE = 2048
 # Damping is reported as not established when the linewidth line explains less than half
 # of the linewidth variance, or when ΔH0 is negative by more than two standard errors
 # (a physical inhomogeneous linewidth cannot be negative). Reasoning in PROMPT.md.
@@ -581,6 +585,49 @@ def _extract_resonance(
         return None, str(error)
 
 
+_ResonanceKey = tuple[str, int, int, float | None]
+_ResonanceEntry = tuple[Measurement, ResonanceFit | None, str | None]
+_resonance_cache: OrderedDict[_ResonanceKey, _ResonanceEntry] = OrderedDict()
+_resonance_cache_lock = threading.Lock()
+
+
+def clear_resonance_cache() -> None:
+    """Forget every cached per-sweep fit. Used by tests and profiling."""
+    with _resonance_cache_lock:
+        _resonance_cache.clear()
+
+
+def _load_and_fit(
+    directory: Path, filename: str, initial_linewidth_pp_oe: float | None
+) -> _ResonanceEntry:
+    """Read one sweep and fit its resonance, reusing the result while the file is unchanged.
+
+    The key is the file's resolved path, size and modification time plus the linewidth
+    seed, so an edited file, a new upload or a different seed is always refitted. An
+    exclusion or restore changes none of these, so it reuses every per-sweep fit and only
+    the two property fits run again. Entries are immutable dataclasses and are never
+    modified after they are stored.
+    """
+    path = directory / filename
+    try:
+        stat = path.stat()
+    except OSError as error:
+        raise ValueError(f"Could not read measurement file {filename}: {error.strerror}") from error
+    key = (str(path.resolve()), stat.st_size, stat.st_mtime_ns, initial_linewidth_pp_oe)
+    with _resonance_cache_lock:
+        cached = _resonance_cache.get(key)
+        if cached is not None:
+            _resonance_cache.move_to_end(key)
+            return cached
+    measurement = _read_measurement(directory, filename)
+    entry = (measurement, *_extract_resonance(measurement, initial_linewidth_pp_oe))
+    with _resonance_cache_lock:
+        _resonance_cache[key] = entry
+        while len(_resonance_cache) > RESONANCE_CACHE_SIZE:
+            _resonance_cache.popitem(last=False)
+    return entry
+
+
 def _is_low_quality(fit: ResonanceFit | None) -> bool:
     """A resonance fit below the R² threshold needs a human look before it is trusted."""
     return fit is not None and fit.r_squared < RESONANCE_R_SQUARED_THRESHOLD
@@ -646,10 +693,8 @@ def analyze_dataset(
         raise ValueError("Duplicate excluded measurement IDs are not allowed.")
     if excluded - {filename for filename, _ in files}:
         raise ValueError("Unknown excluded measurement ID; select a dataset from the active plots.")
-    measurements = [_read_measurement(directory, filename) for filename, _ in files]
     resonance_fits = [
-        (measurement, *_extract_resonance(measurement, initial_linewidth_pp_oe))
-        for measurement in measurements
+        _load_and_fit(directory, filename, initial_linewidth_pp_oe) for filename, _ in files
     ]
     included_fits = [
         (measurement, fit, error)

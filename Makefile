@@ -11,10 +11,10 @@ NODE_IMAGE := node:24.8.0-alpine3.22
 TEST_PATHS ?= tests
 FORMAT_PATHS ?= src tests
 
-.PHONY: help lock build up down verify fresh-verify clean test lint fmt smoke browser logs shell review
+.PHONY: help lock build up down verify fresh-verify clean test lint fmt smoke browser logs shell review profile
 
 help:
-	@printf '%s\n' 'Everyday:' '  build   Build locked dependencies and the app image' '  up      Start the app at http://127.0.0.1:8765' '  down    Stop the app' '  verify  Run lint, tests, API smoke and browser checks' '  clean   Remove project containers and generated files' '' 'Developing:' '  test    Run pytest in the container' '  lint    Run Ruff checks in the container' '  fmt     Format Python in the container' '  smoke   Check a real analysis API response' '  browser Check desktop/mobile plots and PNG export in Chromium' '  fresh-verify  Verify the committed revision from a new local clone' '  review  Show Git status and validate patch whitespace' '  logs    Follow app logs' '  shell   Open a shell in the app container' '' 'Dependencies:' '  lock    Update Python and frontend dependency locks'
+	@printf '%s\n' 'Everyday:' '  build   Build locked dependencies and the app image' '  up      Start the app at http://127.0.0.1:8765' '  down    Stop the app' '  verify  Run lint, tests, API smoke and browser checks' '  clean   Remove project containers and generated files' '' 'Developing:' '  test    Run pytest in the container' '  lint    Run Ruff checks in the container' '  fmt     Format Python in the container' '  smoke   Check a real analysis API response' '  browser Check desktop/mobile plots and PNG export in Chromium' '  profile Time and profile an exclusion analysis on the demo data' '  fresh-verify  Verify the committed revision from a new local clone' '  review  Show Git status and validate patch whitespace' '  logs    Follow app logs' '  shell   Open a shell in the app container' '' 'Dependencies:' '  lock    Update Python and frontend dependency locks'
 
 lock:
 	docker run --rm -v "$(CURDIR)/docker:/work" -w /work $(UV_IMAGE) uv lock
@@ -34,6 +34,9 @@ verify: lint test smoke browser
 
 test: build
 	$(COMPOSE) run --rm app pytest -c docker/pyproject.toml -q $(TEST_PATHS)
+
+profile: build
+	$(COMPOSE) run --rm app python tests/profile_analysis.py
 
 lint: build
 	$(COMPOSE) run --rm app ruff check --config docker/pyproject.toml src tests

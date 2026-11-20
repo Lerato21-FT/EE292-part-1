@@ -226,3 +226,73 @@ def test_summary_explains_a_missing_fit(tmp_path: Path) -> None:
         "No magnetic properties are reported yet for these 3 included sweeps."
     )
     assert result["summary"][1] == result["fit_error"]
+
+
+def count_resonance_fits(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Wrap the per-sweep fitter so a test can count how often it runs."""
+    from app import pipeline
+
+    calls = [0]
+    original = pipeline.fit_derivative_signal
+
+    def counted(*args, **kwargs):
+        calls[0] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "fit_derivative_signal", counted)
+    return calls
+
+
+def test_exclusion_reuses_cached_resonance_fits(tmp_path: Path, monkeypatch) -> None:
+    """Excluding a sweep refits only the two property fits, not the 13 resonance lines."""
+    from app.pipeline import clear_resonance_cache
+
+    directory = write_in_plane_dataset(tmp_path / "cache")
+    clear_resonance_cache()
+    calls = count_resonance_fits(monkeypatch)
+
+    analyze_dataset(directory)
+    assert calls[0] == 13
+    first_id = sorted(path.name for path in directory.glob("*.csv"))[0]
+    analyze_dataset(directory, excluded_measurement_ids=[first_id])
+    analyze_dataset(directory)
+    assert calls[0] == 13
+
+
+def test_cached_analysis_is_identical_to_a_cold_one(tmp_path: Path) -> None:
+    """The cache changes no answer: warm and cold results are equal, field by field."""
+    from app.pipeline import clear_resonance_cache
+
+    directory = write_in_plane_dataset(tmp_path / "same")
+    first_id = sorted(path.name for path in directory.glob("*.csv"))[0]
+    clear_resonance_cache()
+    analyze_dataset(directory)
+    warm = analyze_dataset(directory, excluded_measurement_ids=[first_id])
+    clear_resonance_cache()
+    cold = analyze_dataset(directory, excluded_measurement_ids=[first_id])
+
+    assert warm == cold
+
+
+def test_changed_file_or_setting_is_refitted(tmp_path: Path, monkeypatch) -> None:
+    """A rewritten sweep refits that sweep only; a new linewidth seed refits all of them."""
+    import os
+
+    from app.pipeline import clear_resonance_cache
+
+    directory = write_in_plane_dataset(tmp_path / "change")
+    clear_resonance_cache()
+    calls = count_resonance_fits(monkeypatch)
+    analyze_dataset(directory)
+    assert calls[0] == 13
+
+    changed = sorted(directory.glob("*.csv"))[0]
+    write_sweep(changed, 900.0, 25.0)
+    stat = changed.stat()
+    os.utime(changed, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    result = analyze_dataset(directory)
+    assert calls[0] == 14
+    assert result["measurements"][0]["resonance_field_oe"] == pytest.approx(900.0, abs=0.5)
+
+    analyze_dataset(directory, initial_linewidth_pp_oe=15.0)
+    assert calls[0] == 27
