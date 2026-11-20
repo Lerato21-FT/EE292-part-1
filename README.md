@@ -85,6 +85,31 @@ After editing either dependency manifest, run
 `make lock` and commit the updated manifest and lock together. The CSV folder
 is never modified.
 
+## Where things run, and where the data lives
+
+The drawing at the top of [`ARCHITECTURE.md`](ARCHITECTURE.md#system-at-a-glance)
+shows the whole system. Everything runs on your computer: the browser draws
+the page, and one Docker container on `127.0.0.1:8765` does the analysis.
+Code and the demo data are copied into the image when it is built, so a code
+change needs `make up`.
+
+**The data that cannot be rebuilt:**
+- `broadband_100/` holds the **original 49 LFO48 measurements**. No script
+  can recreate them, and re-measuring is expensive. Copies are kept in this
+  Git repository (on the owner's laptop and on GitHub) and in an **offline
+  backup on the owner's cloud drive**.
+- `notes/` and `feedback/` are human-written records, kept in Git only.
+- Uploaded folders are **never stored**. They live in the container's
+  memory until it stops, so your own folder is the only copy of your data.
+
+Everything else rebuilds from the repository: `make build` installs the
+locked dependencies, and every number on the page is recomputed from the
+CSVs on each request.
+
+**Known limit:** there is one active dataset for the whole app, not one per
+user or browser tab. If two tabs upload different folders, the second
+replaces the first for both.
+
 ## Reading the page
 
 - **Result first.** The page opens on the fit summary: two or three plain
@@ -363,6 +388,11 @@ tripwire: g, Beff,⊥ and B4 to ≤ 1e-5, α to 1e-7, and the number of flagged
 sweeps (36 low-R², 44 modulation). Any change to the fitting moves it. When
 that happens, explain the change in the commit before updating the pins;
 the pins are not evidence that the values are right.
+`make profile` times one exclusion analysis on the demo data, cold and warm,
+and prints the top functions from `cProfile`. Per-sweep fits are cached
+while a file is unchanged, so an exclude or restore reruns only the two
+property fits: 0.002 s instead of 0.13 s, with identical results (measured
+2026-11-19).
 `make review` checks patch whitespace and shows the working tree changes.
 `make fresh-verify` checks the committed revision from a new clone inside
 repository `.cache/`, without local `.env` or uncommitted files. It keeps the

@@ -64,6 +64,17 @@ Tasks are specified here. When done with a task, label it as complete. Execute t
     There is a light theme (the default) and a dark toggle.
     Log: `notes/2026-11-19-round4-session-log.md`.
 
+- [x] Address peer review round 5 (`feedback/20261119_cd24_l6134546.md`,
+  `feedback/20261119_wgguan_l6134546_7a.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`. Per-sweep fits are cached, and
+    `make profile` shows an exclusion going from 0.13 s to 0.002 s with
+    identical results. Added a system drawing in ARCHITECTURE.md. The README
+    names the irreplaceable data and its backups (Git, GitHub, cloud drive)
+    and the shared-dataset limit. Log:
+    `notes/2026-11-19-round5-session-log.md`.
+  - Helena's "API sends the starting-field range and equations" is covered
+    by the geometry task below.
+
 - [ ] Put each measurement geometry in one record (peer review round 3,
   `feedback/20261119_wgguan_l6134546_5a.md`). Staged 2026-11-19; not started.
   - In `pipeline.py`, one record per geometry holds the model function, the
