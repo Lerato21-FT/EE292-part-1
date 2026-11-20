@@ -63,7 +63,7 @@ The 49 demo sweeps with one exclusion, median of 5 runs, in the app container:
 | Commit | What |
 |---|---|
 | `3ba0321` | Per-sweep cache, three fail-first tests, `tests/profile_analysis.py`, and the `make profile` target |
-| next | ARCHITECTURE diagram and cache notes, README data and backup section, the known limit, the profile note, TASKS, this log |
+| `e35a883` | ARCHITECTURE diagram and cache notes, README data and backup section, the known limit, the profile note, TASKS, this log |
 
 ## 6. Verification
 
