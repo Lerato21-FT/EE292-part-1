@@ -86,6 +86,9 @@ src/web/             the page: index.html, app.js, styles.css
 tests/               pytest
 docs/                decisions worth remembering, one short file each
 notes/               daily implementation records, named YYYY-MM-DD.md
+.github/workflows/   CI: verify.yml runs `make verify` on pull requests and main
+.claude/agents/      referee.md, a read-only review subagent
+.claude/skills/      review-to-tasks, verify-and-record (project skills)
 artifacts/           gitignored browser screenshots and exported plots
 .cache/buildx/       gitignored Docker builder metadata kept inside the repo
 data/                for future datasets: raw/ is never modified,
