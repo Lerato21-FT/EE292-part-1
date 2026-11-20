@@ -52,7 +52,7 @@ The three largest risks to trusting the results, and what is done about each:
 |---|---|---|
 | **Broadened linewidths bias α** | On the demo data, 44 of 49 sweeps have field modulation above ΔHpp/3, and the linewidth fit has R² ≈ 0.10. A biased linewidth gives a biased damping. | The app warns about modulation broadening and marks α **not established**. Remeasure at lower modulation before relying on α. |
 | **The in-plane model is ambiguous** | One azimuth cannot confirm four-fold symmetry, and the model has a mirror solution with negative Beff,⊥ that fits equally well. | The app warns when the data cannot rule out the mirror. Out-of-plane sweeps or a measured Ms (milestones 2 and 3) resolve it. |
-| **Validation is mostly synthetic** | The known-answer tests use generated data. The broadband golden values are the app's own earlier output (±20 % on α), so they catch changes, not errors. No result has been compared with an independent measurement of this film. | Treat the golden values as a tripwire only. Compare with VNA-FMR or a literature value for the film when one is available. |
+| **Validation is mostly synthetic** | The known-answer tests use generated data. The broadband golden values are the app's own output, now pinned tightly (g to 1e-5, α to 1e-7), so they catch changes, not errors. No result has been compared with an independent measurement of this film. | Treat the golden values as a tripwire only. Compare with VNA-FMR or a literature value for the film when one is available. |
 
 ## Run it
 
@@ -84,6 +84,28 @@ use, for example, `make test TEST_PATHS=tests/test_pipeline.py`.
 After editing either dependency manifest, run
 `make lock` and commit the updated manifest and lock together. The CSV folder
 is never modified.
+
+## Reading the page
+
+- **Result first.** The page opens on the fit summary: two or three plain
+  sentences from the backend, then any warnings, then the four result cards
+  (g, Beff,⊥, B4 and α, each with its 1σ error). The geometry, upload and
+  fit controls come next, then the plots, the raw sweep and the model scope.
+- **One meaning per colour**, the same in every plot, the dataset list and
+  the PNG exports:
+
+  | Mark | Means |
+  |---|---|
+  | Orange point or trace | Measured data |
+  | Cyan line | A model fit |
+  | Violet point | Selected (click a point, or use the list) |
+  | Gray cross | Excluded from both fits; select it, then **Restore selected** |
+
+  A key above the plots repeats this. Warnings are amber, and a result
+  card marked **NOT ESTABLISHED** has lost its cyan highlight.
+- **Light or dark.** The page opens in light mode. The **Light / Dark**
+  toggle at the top right switches the whole page, plots included. The
+  choice is remembered in that browser only. Saved PNGs are always light.
 
 ## Input data
 
@@ -311,7 +333,10 @@ convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.nc
   the mirror solution.
   Each measurement has `low_quality` (resonance R² < 0.98),
   `modulation_rms_oe`, `modulation_pp_oe` and `modulation_warning`. The
-  top-level `warnings` list explains these in words.
+  top-level `warnings` list explains these in words, and `summary` states
+  the outcome in two or three sentences built from the fields above. The
+  sentences cover the Kittel values, the damping or why it is not
+  established, and how many warnings were raised.
 - `GET /api/analysis?geometry=out_of_plane&initial_perpendicular_field_t=-0.4&initial_linewidth_pp_oe=10`
   explicitly selects the perpendicular model. Omitting settings uses the
   active upload's geometry and initialization. The response includes
@@ -333,6 +358,11 @@ for perpendicular data, and desktop/mobile widths for in-plane data.
 Screenshots and exported PNGs are saved under gitignored `artifacts/`.
 **Save PNG** re-renders the chart on a white, larger-type layout for reports
 and slides, at 2400 × 1700 pixels; the page itself keeps its dark theme.
+The bundled 49-sweep test pins this app's own results, so it works as a
+tripwire: g, Beff,⊥ and B4 to ≤ 1e-5, α to 1e-7, and the number of flagged
+sweeps (36 low-R², 44 modulation). Any change to the fitting moves it. When
+that happens, explain the change in the commit before updating the pins;
+the pins are not evidence that the values are right.
 `make review` checks patch whitespace and shows the working tree changes.
 `make fresh-verify` checks the committed revision from a new clone inside
 repository `.cache/`, without local `.env` or uncommitted files. It keeps the

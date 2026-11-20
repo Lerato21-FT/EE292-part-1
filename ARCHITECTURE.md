@@ -61,6 +61,8 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   Resonance extraction and aggregate fit success do not gate activation.
 - `pipeline.py` owns CSV parsing, resonance extraction, and both scientific
   fits. The frontend receives complete data and fit curves from the API.
+  `summarize_analysis` turns the finished result into the `summary`
+  sentences, so every judgement on the page comes from the backend.
 - Analysis accepts request-scoped `excluded_measurement_ids`, validated for
   length, uniqueness and membership in the active dataset. Both aggregate
   fits use the same included subset; damping uses its refitted g factor.
@@ -111,8 +113,8 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   JavaScript formats labels, displays equations and handles interaction.
 - Clicking markers on either scientific chart or using an accessible dataset
   list selects sweep IDs. Exclude/restore controls request a new analysis;
-  selected markers are cyan and excluded markers are gray crosses in both
-  plots. A failed request leaves the previous results available. Exclusions
+  selected markers are violet and excluded markers are gray crosses in both
+  plots. Orange is always measured data and cyan always a model fit. A failed request leaves the previous results available. Exclusions
   survive refits within the page and reset on reload or a successful upload.
 - Valid responses with unavailable fits clear previous property values and
   curves, display an explanatory status, and retain point selection and raw
@@ -123,6 +125,14 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   annotations. Backend warnings are listed above the cards, and flagged
   sweeps are labelled in the dataset list. A damping-only failure keeps the
   Kittel results on screen.
+- The results are split across two sections: `#results-summary` (the
+  backend `summary` sentences, warnings and cards) comes before the
+  controls, and `#results` (exclusions, plots, raw trace) after them. One
+  helper shows and hides both.
+- Colours are CSS custom properties on `:root`, light by default, with a
+  `[data-theme="dark"]` override. The topbar toggle sets `data-theme` and
+  stores the choice in `localStorage`. Plot colours are read from the same
+  tokens, and the charts redraw on a theme change.
 - Plotly charts render after their results section becomes visible, resize
   with `ResizeObserver`, and become one column below 1100 px. Equations,
   legends and axes have reserved margins. PNGs include fitted values and

@@ -31,10 +31,9 @@ Tasks are specified here. When done with a task, label it as complete. Execute t
   - **Not verified:** none of the tests, `make verify` or `make fresh-verify`
     were run. Docker Desktop was unavailable, and the owner chose to skip
     the run. The fail-first demonstration was skipped too.
-  - Still open: tighten the golden tolerances in
-    `test_broadband_dataset_analysis_returns_all_sweeps`, which needs one
-    run to record current values. Rotating the API key from `3fee3a2` and
-    setting a git identity need the owner.
+  - Golden tolerances tightened on 2026-11-19 (round 4). Still open:
+    rotating the API key from `3fee3a2` and setting a git identity, both of
+    which need the owner.
 
 - [x] Address peer review round 1 (`feedback/20261014_allenduh_l6134546.md`,
   `feedback/20261119_wgguan_l6134546_3a.md`).
@@ -56,6 +55,14 @@ Tasks are specified here. When done with a task, label it as complete. Execute t
 - [ ] Export plotted data and fits as a text/CSV download, including the fits to
   the raw traces (`notes/2026-11-11.md`, luyunqi 2026-10-13).
   - Postponed by the owner on 2026-11-19 (round 2 review); it is the next milestone.
+
+- [x] Address peer review round 4 (`feedback/20261118_cd24_l6134546.md`,
+  `feedback/20261119_sayragr_l6134546.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`. The bundled results are
+    pinned as a tripwire. The page leads with the result and a backend
+    `summary`. Colours have one meaning each, with violet for selected.
+    There is a light theme (the default) and a dark toggle.
+    Log: `notes/2026-11-19-round4-session-log.md`.
 
 - [ ] Put each measurement geometry in one record (peer review round 3,
   `feedback/20261119_wgguan_l6134546_5a.md`). Staged 2026-11-19; not started.
