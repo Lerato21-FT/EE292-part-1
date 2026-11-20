@@ -26,6 +26,28 @@ linewidths, a mirror solution the data cannot rule out, or a damping value
 that is not established. The **New to FMR? Start here** button in the app
 gives the same introduction for readers outside the field.
 
+## Milestones and risks
+
+**Working now:** upload a folder of sweeps, fit every resonance line, then fit
+the Kittel and linewidth models with 1σ errors. Linked exclusions and
+plain-language quality warnings are included. The next milestones, in order:
+
+1. **CSV export** of the plotted points, both fits, and the fitted curve for
+   every raw sweep, so the results can be reused outside the app. Postponed
+   for now; it is the next task in [`TASKS.md`](TASKS.md).
+2. **Angle-dependent sweeps.** Fitting several in-plane azimuths would show
+   whether B4 really has four-fold symmetry. A single angle cannot.
+3. **A measured Ms.** An independent saturation magnetization separates the
+   anisotropy field H2⊥ (and Ku) from Beff,⊥ = μ0 Ms − μ0 H2⊥.
+
+The three largest risks to trusting the results, and what is done about each:
+
+| Risk | Why it matters | Mitigation |
+|---|---|---|
+| **Broadened linewidths bias α** | On the demo data, 44 of 49 sweeps have field modulation above ΔHpp/3, and the linewidth fit has R² ≈ 0.10. A biased linewidth gives a biased damping. | The app warns about modulation broadening and marks α **not established**. Remeasure at lower modulation before relying on α. |
+| **The in-plane model is ambiguous** | One azimuth cannot confirm four-fold symmetry, and the model has a mirror solution with negative Beff,⊥ that fits equally well. | The app warns when the data cannot rule out the mirror. Out-of-plane sweeps or a measured Ms (milestones 2 and 3) resolve it. |
+| **Validation is mostly synthetic** | The known-answer tests use generated data. The broadband golden values are the app's own earlier output (±20 % on α), so they catch changes, not errors. No result has been compared with an independent measurement of this film. | Treat the golden values as a tripwire only. Compare with VNA-FMR or a literature value for the film when one is available. |
+
 ## Run it
 
 Requirements on the host: Docker, Make, and Git. No host Python or Node

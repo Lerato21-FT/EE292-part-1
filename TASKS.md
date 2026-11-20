@@ -46,5 +46,13 @@ Tasks are specified here. When done with a task, label it as complete. Execute t
   - Fail-first shown: 2 failures before any change, then 7 new tests that
     failed on the old code. Log: `notes/2026-11-19-round1-session-log.md`.
 
+- [x] Add the milestones and top three risks to the README (peer review round 2,
+  `feedback/20261013_luyunqi_l6134546.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`, in the README section "Milestones
+    and risks". The owner confirmed the three risks. "Why the work matters" and the
+    quantitative PROMPT.md were already done. Log:
+    `notes/2026-11-19-round2-session-log.md`.
+
 - [ ] Export plotted data and fits as a text/CSV download, including the fits to
   the raw traces (`notes/2026-11-11.md`, luyunqi 2026-10-13).
+  - Postponed by the owner on 2026-11-19 (round 2 review); it is the next milestone.
