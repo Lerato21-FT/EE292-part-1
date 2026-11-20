@@ -56,3 +56,23 @@ Tasks are specified here. When done with a task, label it as complete. Execute t
 - [ ] Export plotted data and fits as a text/CSV download, including the fits to
   the raw traces (`notes/2026-11-11.md`, luyunqi 2026-10-13).
   - Postponed by the owner on 2026-11-19 (round 2 review); it is the next milestone.
+
+- [ ] Put each measurement geometry in one record (peer review round 3,
+  `feedback/20261119_wgguan_l6134546_5a.md`). Staged 2026-11-19; not started.
+  - In `pipeline.py`, one record per geometry holds the model function, the
+    fitter, the parameter bounds, the default starting field and its allowed
+    range, the equation, and the labels. The pipeline picks the record once by
+    geometry, instead of the `if geometry == ...` branches in
+    `resolve_analysis_settings` and `_fit_magnetic_properties`.
+  - The API returns the bounds, the starting-field range, the equations and
+    the labels with the result, so `app.js` only displays them and has no
+    geometry branches. Adding a geometry, such as a tilted field, should be
+    one new record.
+  - Start with the values that are already copied. The starting-field range
+    (−2 or 0 up to 2 T) is in `app.js`, `resolve_analysis_settings` and both
+    Kittel fitters. The equation is in the API strings, the `app.js` plot
+    annotations, and the `EQUATIONS` MathML added in round 1. The per-geometry
+    `MODEL_SCOPE` text, also added in round 1, belongs in the record too.
+  - Done means: the existing tests pass unchanged. A new test checks that
+    every geometry record is complete and that the API returns it. A
+    `grep` for `out_of_plane` in `app.js` finds only the geometry toggle.

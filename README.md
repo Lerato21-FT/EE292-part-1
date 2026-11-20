@@ -1,19 +1,25 @@
 # FMR / Field Analysis
 
-A local-only web app for analyzing field-swept ferromagnetic resonance
-measurements recorded with a lock-in amplifier. The FastAPI backend reads CSV
-sweeps, fits each derivative resonance, extracts its peak-to-peak linewidth,
-and fits the dispersion and damping models. The browser only displays API
-results and raw traces; it does not perform scientific calculations.
+For researchers who measure ferromagnetic resonance (FMR) of magnetic thin
+films with field sweeps and a lock-in amplifier. Give it a folder of sweeps,
+one CSV per microwave frequency, and it returns three numbers with 1σ errors,
+on your own computer: the film's **g-factor**, its **effective perpendicular
+field** Beff,⊥, and its **Gilbert damping** α. Together they tell you whether
+a film has the anisotropy and the low damping you grew it for, without fitting
+dozens of resonance lines by hand.
+
+**How it works:** it is a local-only web app. A FastAPI backend reads the
+CSV sweeps and fits each resonance line to get its position and width. It then
+fits how those change with frequency to get the three numbers. The browser
+only displays the API's results and the raw traces; it does no scientific
+calculation.
 
 ## Why it matters
 
-Ferromagnetic resonance (FMR) measures how the magnetization of a film
-precesses in a magnetic field. From a set of field sweeps at different
-microwave frequencies it gives three things a materials scientist needs: the
-**g-factor**, the **effective perpendicular field** Beff,⊥ (whether the film
-prefers in-plane or out-of-plane magnetization), and the **Gilbert damping**
-α (how quickly precession dies out). Magnetic insulator films are candidates
+FMR measures how the magnetization of a film precesses in a magnetic field.
+The g-factor describes how fast it precesses per tesla. Beff,⊥ says whether
+the film prefers in-plane or out-of-plane magnetization. α says how quickly
+the precession dies out. Magnetic insulator films are candidates
 for spin-wave and spintronic devices, where low damping means spin waves
 travel further and magnetization switches with less current, so α decides
 whether a film is useful.
