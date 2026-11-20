@@ -35,6 +35,36 @@ const plotLayout = {
   showlegend: true,
 };
 
+// Typeset model equations. These are fixed presentation strings, never user data.
+const mi = (name) => `<mi>${name}</mi>`;
+const sub = (base, index) => `<msub>${base}<mtext>${index}</mtext></msub>`;
+const B = (index) => sub(mi("B"), index);
+const prefactor = `<mfrac><mrow>${mi("g")}${sub(mi("μ"), "B")}</mrow>${mi("h")}</mfrac>`;
+const EQUATIONS = {
+  in_plane: `<math display="block">${mi("f")}<mo>=</mo>${prefactor}<msqrt><mrow><mo>(</mo>${B("res")}<mo>+</mo>${B("4")}<mo>)</mo><mo>(</mo>${B("res")}<mo>+</mo>${B("4")}<mo>+</mo>${B("eff,⊥")}<mo>)</mo></mrow></msqrt></math>`,
+  out_of_plane: `<math display="block">${mi("f")}<mo>=</mo>${prefactor}<mo>(</mo>${B("res")}<mo>−</mo>${B("eff,⊥")}<mo>)</mo></math>`,
+  linewidth: `<math display="block">${sub("<mrow><mi mathvariant=\"normal\">Δ</mi><mi>H</mi></mrow>", "pp")}<mo>=</mo>${sub("<mrow><mi mathvariant=\"normal\">Δ</mi><mi>H</mi></mrow>", "0")}<mo>+</mo><mfrac><mrow><mn>4</mn><mi>π</mi><mi>α</mi></mrow><mrow><msqrt><mn>3</mn></msqrt><mi>γ</mi></mrow></mfrac><mo>·</mo>${mi("f")}</math>`,
+};
+
+const MODEL_SCOPE = {
+  in_plane: [
+    ["Aligned axis.", "The field lies along the 0° in-plane axis. One azimuth cannot establish four-fold angular symmetry, so B4 is the contribution along this axis only."],
+    ["Effective field, not Ku.", "Beff,⊥ = μ₀Ms − μ₀H₂⊥ combines demagnetization and anisotropy. Separating Ku needs an independent Ms."],
+    ["Beff,⊥ > 0 by assumption.", "The same curve is also fitted by a mirror solution with Beff,⊥ < 0. The app warns when the data cannot rule it out."],
+    ["Peak-to-peak linewidth.", "ΔHpp is the width of the fitted derivative Lorentzian; strong field modulation broadens it."],
+  ],
+  out_of_plane: [
+    ["Saturated film.", "The magnetization is assumed parallel to a nonnegative field normal to the film."],
+    ["Signed effective field, not Ku.", "Beff,⊥ = μ₀Ms − μ₀H₂⊥; a negative value means perpendicular anisotropy exceeds the demagnetizing field."],
+    ["No four-fold term.", "No in-plane B4 is inferred in this geometry."],
+    ["Starting values only.", "−0.4 T and 10 Oe seed the fits; the measured sweeps determine the results."],
+    ["Peak-to-peak linewidth.", "ΔHpp is the width of the fitted derivative Lorentzian; strong field modulation broadens it."],
+  ],
+};
+
+// Print-friendly styling applied only to exported PNGs; the page keeps its dark theme.
+const exportColors = { text: "#1b2430", muted: "#5b6672", grid: "#e3e8ee", line: "#0f8f84", point: "#d9622b" };
+
 const plotConfig = { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d"] };
 const elements = {
   error: document.querySelector("#error-message"),
@@ -196,9 +226,9 @@ function plotKittel(analysis) {
   const points = analysis.measurements;
   const fit = analysis.kittel_fit;
   const equation = analysis.geometry === "out_of_plane"
-    ? "f = (g μB/h)<br>× (Bres − Beff,⊥)"
-    : "f = (g μB/h) √[(Bres + B4)<br>× (Bres + B4 + Beff,⊥)]";
-  const parameters = fit ? `g = ${withSigma(fit.g_factor, fit.g_factor_sigma, (v) => v.toFixed(4))}<br>Beff,⊥ = ${withSigma(fit.effective_perpendicular_field_t, fit.effective_perpendicular_field_sigma_t, (v) => v.toFixed(4))} T${fit.fourfold_field_t === null ? "" : `<br>B4 = ${withSigma(fit.fourfold_field_t, fit.fourfold_field_sigma_t, (v) => v.toFixed(5))} T`}` : "";
+    ? "f = (g μ<sub>B</sub>/h)(B<sub>res</sub> − B<sub>eff,⊥</sub>)"
+    : "f = (g μ<sub>B</sub>/h) √[(B<sub>res</sub> + B<sub>4</sub>)<br>× (B<sub>res</sub> + B<sub>4</sub> + B<sub>eff,⊥</sub>)]";
+  const parameters = fit ? `g = ${withSigma(fit.g_factor, fit.g_factor_sigma, (v) => v.toFixed(4))}<br>B<sub>eff,⊥</sub> = ${withSigma(fit.effective_perpendicular_field_t, fit.effective_perpendicular_field_sigma_t, (v) => v.toFixed(4))} T${fit.fourfold_field_t === null ? "" : `<br>B<sub>4</sub> = ${withSigma(fit.fourfold_field_t, fit.fourfold_field_sigma_t, (v) => v.toFixed(5))} T`}` : "";
   const curve = fit?.curve ?? [];
   return Plotly.react(
     "kittel-chart",
@@ -225,8 +255,8 @@ function plotKittel(analysis) {
     ],
     {
       ...plotLayout,
-      xaxis: axis("Resonance field (Oe)", plotLayout.xaxis),
-      yaxis: axis("Frequency (GHz)", plotLayout.yaxis),
+      xaxis: axis("Resonance field B<sub>res</sub> (Oe)", plotLayout.xaxis),
+      yaxis: axis("Frequency f (GHz)", plotLayout.yaxis),
       annotations: fitAnnotation(fit ? `${equation}<br>${parameters}` : "Kittel fit unavailable<br>Inspect or exclude sweeps"),
     },
     plotConfig,
@@ -262,12 +292,24 @@ function plotLinewidth(analysis) {
     ],
     {
       ...plotLayout,
-      xaxis: axis("Frequency (GHz)", plotLayout.xaxis),
-      yaxis: axis("ΔHpp (Oe)", plotLayout.yaxis),
-      annotations: fitAnnotation(fit ? `ΔHpp = ΔH0 + (4πα/√3γ)·f<br>α = ${withSigma(fit.damping, fit.damping_sigma, (v) => v.toPrecision(4))}${fit.damping_resolved ? "" : " (not resolved)"}<br>ΔH0 = ${withSigma(fit.intercept_oe, fit.intercept_sigma_oe, (v) => v.toFixed(2))} Oe` : "Linewidth fit unavailable<br>Inspect or exclude sweeps"),
+      xaxis: axis("Frequency f (GHz)", plotLayout.xaxis),
+      yaxis: axis("Linewidth ΔH<sub>pp</sub> (Oe)", plotLayout.yaxis),
+      annotations: fitAnnotation(fit ? `ΔH<sub>pp</sub> = ΔH<sub>0</sub> + (4πα/√3γ)·f<br>α = ${withSigma(fit.damping, fit.damping_sigma, (v) => v.toPrecision(4))}<br>ΔH<sub>0</sub> = ${withSigma(fit.intercept_oe, fit.intercept_sigma_oe, (v) => v.toFixed(2))} Oe${fit.damping_established ? "" : "<br>α not established: see warnings"}` : "Linewidth fit unavailable<br>Inspect or exclude sweeps"),
     },
     plotConfig,
   );
+}
+
+// Shows a typeset equation when the backend reports that fit; the API string is the accessible label.
+function showEquation(selector, apiEquation, mathml) {
+  const target = document.querySelector(selector);
+  if (apiEquation) {
+    target.innerHTML = mathml;
+    target.setAttribute("aria-label", apiEquation);
+  } else {
+    target.textContent = "Fit unavailable";
+    target.removeAttribute("aria-label");
+  }
 }
 
 async function showAnalysis(analysis) {
@@ -288,7 +330,16 @@ async function showAnalysis(analysis) {
   document.querySelector("#g-factor-sigma").textContent = sigmaText(kittel?.g_factor_sigma);
   document.querySelector("#perpendicular-field-sigma").textContent = sigmaText(kittel?.effective_perpendicular_field_sigma_t, " T");
   document.querySelector("#fourfold-field-sigma").textContent = sigmaText(kittel?.fourfold_field_sigma_t, " T");
-  document.querySelector("#damping-sigma").textContent = linewidth ? `${sigmaText(linewidth.damping_sigma)}${linewidth.damping_resolved ? "" : " · consistent with zero"}` : "";
+  const dampingEstablished = Boolean(linewidth?.damping_established);
+  document.querySelector("#damping-card").classList.toggle("metric-accent", dampingEstablished);
+  document.querySelector("#damping-status").hidden = !linewidth || dampingEstablished;
+  document.querySelector("#damping-sigma").textContent = linewidth ? `${sigmaText(linewidth.damping_sigma)}${dampingEstablished ? "" : " · see warnings"}` : "";
+  const perpendicularNote = document.querySelector("#perpendicular-note");
+  if (kittel?.mirror_effective_perpendicular_field_t != null) {
+    perpendicularNote.textContent = `Mirror fits equally: ${kittel.mirror_effective_perpendicular_field_t.toFixed(4)} T with B₄ = ${kittel.mirror_fourfold_field_t.toFixed(5)} T`;
+  } else {
+    perpendicularNote.innerHTML = "μ₀M<sub>eff</sub> = μ₀M<sub>s</sub> − μ₀H<sub>2⊥</sub>";
+  }
   document.querySelector("#sweep-count").textContent = String(analysis.included_measurement_count).padStart(2, "0");
   document.querySelector("#g-factor").textContent = kittel?.g_factor.toFixed(4) ?? "—";
   document.querySelector("#perpendicular-field").textContent = kittel?.effective_perpendicular_field_t.toFixed(4) ?? "—";
@@ -297,14 +348,18 @@ async function showAnalysis(analysis) {
   document.querySelector("#damping").textContent = linewidth?.damping.toPrecision(4) ?? "—";
   document.querySelector("#kittel-r2").textContent = kittel ? `Kittel model R² ${kittel.r_squared.toFixed(5)}` : "Kittel fit unavailable";
   document.querySelector("#linewidth-r2").textContent = linewidth ? `Linewidth model R² ${linewidth.r_squared.toFixed(5)}` : "Linewidth fit unavailable";
-  document.querySelector("#kittel-equation").textContent = kittel?.equation ?? "Fit unavailable";
-  document.querySelector("#linewidth-equation").textContent = linewidth?.equation ?? "Fit unavailable";
+  showEquation("#kittel-equation", kittel?.equation, EQUATIONS[analysis.geometry]);
+  showEquation("#linewidth-equation", linewidth?.equation, EQUATIONS.linewidth);
   document.querySelector("#kittel-model-label").textContent = analysis.geometry === "out_of_plane" ? "PERPENDICULAR KITTEL MODEL" : "ALIGNED-AXIS KITTEL MODEL";
   document.querySelector("#kittel-fit-label").textContent = kittel ? `g = ${withSigma(kittel.g_factor, kittel.g_factor_sigma, (v) => v.toFixed(4))} · Beff,⊥ = ${withSigma(kittel.effective_perpendicular_field_t, kittel.effective_perpendicular_field_sigma_t, (v) => v.toFixed(4))} T${kittel.fourfold_field_t === null ? "" : ` · B4 = ${withSigma(kittel.fourfold_field_t, kittel.fourfold_field_sigma_t, (v) => v.toFixed(5))} T`} (1σ)` : "No magnetic properties reported until the Kittel model can be fitted.";
   document.querySelector("#linewidth-fit-label").textContent = linewidth ? `α = ${withSigma(linewidth.damping, linewidth.damping_sigma, (v) => v.toPrecision(4))} · ΔHpp,0 = ${withSigma(linewidth.intercept_oe, linewidth.intercept_sigma_oe, (v) => v.toFixed(2))} Oe · slope = ${withSigma(linewidth.slope_oe_per_ghz, linewidth.slope_sigma_oe_per_ghz, (v) => v.toPrecision(4))} Oe/GHz (1σ)` : "No damping reported until the linewidth model can be fitted.";
-  document.querySelector("#model-note").textContent = analysis.geometry === "out_of_plane"
-    ? "Model scope. The perpendicular Kittel model assumes a saturated film with magnetization aligned to a nonnegative applied field normal to the film. Beff,⊥ = μ₀Ms − μ₀H₂⊥; a negative value means perpendicular anisotropy exceeds the demagnetizing field. It is an effective field, not intrinsic Ku. No in-plane four-fold field is inferred. The −0.4 T and 10 Oe values initialize the fits; linewidth is measured peak-to-peak from the derivative signal."
-    : "Model scope. The in-plane Kittel fit assumes the aligned 0° axis. Beff,⊥ = μ₀Ms − μ₀H₂⊥ is an effective field, not intrinsic Ku; extracting Ku requires independent Ms. A single azimuth cannot establish four-fold angular symmetry. Linewidth is measured peak-to-peak from the derivative signal.";
+  document.querySelector("#model-note").replaceChildren(...MODEL_SCOPE[analysis.geometry].map(([head, text]) => {
+    const item = document.createElement("li");
+    const strong = document.createElement("b");
+    strong.textContent = head;
+    item.append(strong, ` ${text}`);
+    return item;
+  }));
   await Promise.all([plotKittel(analysis), plotLinewidth(analysis)]);
   bindPointSelection();
 }
@@ -446,19 +501,81 @@ async function uploadDataset() {
   }
 }
 
+function recolor(color) {
+  if (Array.isArray(color)) return color.map(recolor);
+  return { [colors.cyan]: exportColors.line, [colors.orange]: exportColors.point, [colors.muted]: "#9aa5b1" }[color] ?? color;
+}
+
+function exportAxis(base) {
+  return {
+    ...base,
+    gridcolor: exportColors.grid,
+    zerolinecolor: exportColors.grid,
+    linecolor: exportColors.muted,
+    tickcolor: exportColors.muted,
+    showline: true,
+    mirror: true,
+    ticks: "outside",
+    title: { ...base.title, font: { size: 20, color: exportColors.text } },
+  };
+}
+
+// Re-renders the current chart on a white, larger-type layout for reports and slides.
+function exportFigure(chart) {
+  const data = chart.data.map((trace) => {
+    const copy = { ...trace };
+    if (trace.line) copy.line = { ...trace.line, color: recolor(trace.line.color), width: 3 };
+    if (trace.marker) {
+      copy.marker = {
+        ...trace.marker,
+        color: recolor(trace.marker.color),
+        size: Array.isArray(trace.marker.size) ? trace.marker.size.map((size) => size + 4) : trace.marker.size,
+        line: { color: "#ffffff", width: 1 },
+      };
+    }
+    return copy;
+  });
+  const layout = {
+    ...chart.layout,
+    paper_bgcolor: "#ffffff",
+    plot_bgcolor: "#ffffff",
+    font: { family: "Helvetica, Arial, sans-serif", size: 16, color: exportColors.muted },
+    margin: { l: 110, r: 50, t: 210, b: 100 },
+    xaxis: exportAxis(chart.layout.xaxis),
+    yaxis: exportAxis(chart.layout.yaxis),
+    legend: { ...chart.layout.legend, font: { size: 16, color: exportColors.text }, entrywidth: 260 },
+    annotations: (chart.layout.annotations ?? []).map((note) => ({
+      ...note, yshift: 56, font: { size: 17, color: exportColors.text },
+    })),
+  };
+  return { data, layout };
+}
+
 async function savePlot(chartId, filename) {
   try {
-    await Plotly.downloadImage(chartId, {
+    const url = await Plotly.toImage(exportFigure(document.getElementById(chartId)), {
       format: "png",
-      filename: `${filename}-${geometry}`,
-      width: 1000,
-      height: 700,
+      width: 1200,
+      height: 850,
       scale: 2,
     });
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${filename}-${geometry}.png`;
+    document.body.append(link);
+    link.click();
+    link.remove();
   } catch (error) {
     displayError(`Could not save plot: ${error.message}`);
   }
 }
+
+const aboutDialog = document.querySelector("#about-dialog");
+document.querySelector("#about-button").addEventListener("click", () => aboutDialog.showModal());
+document.querySelector("#about-close").addEventListener("click", () => aboutDialog.close());
+aboutDialog.addEventListener("click", (event) => {
+  if (event.target === aboutDialog) aboutDialog.close();
+});
 
 elements.button.addEventListener("click", () => analyze());
 elements.excludeSelected.addEventListener("click", () => applyExclusions("exclude"));

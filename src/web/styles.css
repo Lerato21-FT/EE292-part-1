@@ -109,7 +109,6 @@ h1 span { color: var(--cyan); }
 .chart { width: 100%; min-width: 0; height: 410px; margin-top: 8px; }
 .equation { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 66px; padding: 14px 0 8px; border-top: 1px solid var(--border); }
 .equation > span { flex: 0 0 auto; color: #7d8b99; font-size: 8px; }
-.equation code { color: #c7d5df; font: 11px/1.6 var(--mono); white-space: normal; overflow-wrap: anywhere; }
 .fit-caption { padding: 0 0 16px; color: var(--muted); font: 10px/1.7 var(--mono); overflow-wrap: anywhere; }
 .trace-card { margin-top: 14px; padding-bottom: 2px; }
 .select-wrap { display: grid; gap: 5px; color: var(--muted); }
@@ -122,6 +121,21 @@ h1 span { color: var(--cyan); }
 .note-mark { display: grid; flex: 0 0 18px; place-items: center; width: 18px; height: 18px; margin-top: 1px; border: 1px solid rgba(100, 223, 208, .4); border-radius: 50%; color: var(--cyan); font: 11px var(--mono); }
 .model-note p { margin: 0; color: #91a0ae; font-size: 11px; line-height: 1.65; }
 .model-note strong { color: #d6e0e9; font-weight: 500; }
+.model-list { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 16px; color: #91a0ae; font-size: 12px; line-height: 1.6; }
+.model-list b { color: #d6e0e9; font-weight: 500; }
+.metric-status { display: inline-block; margin-top: 10px; padding: 2px 7px; border: 1px solid rgba(255, 214, 107, .45); border-radius: 4px; color: #ffe2a3; font: 9px var(--mono); letter-spacing: .1em; }
+.metric-status + .metric-value { margin-top: 8px; color: #b7c3ce; }
+.math { color: #dbe5ee; font-size: 17px; max-width: 100%; overflow-x: auto; }
+.math math { font-family: "STIX Two Math", "Cambria Math", "Latin Modern Math", serif; }
+.about-button { margin-top: 30px; }
+.about-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 24px 28px 28px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); font: 14px/1.7 var(--sans); }
+.about-dialog::backdrop { background: rgba(5, 9, 14, .72); }
+.about-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.about-dialog h2 { margin: 10px 0 6px; font: 500 22px var(--display); letter-spacing: -.03em; }
+.about-dialog h3 { margin: 20px 0 4px; color: var(--cyan); font: 500 14px var(--display); }
+.about-dialog p, .about-dialog li { color: #b6c3cf; }
+.about-dialog ul, .about-dialog ol { padding-left: 20px; margin: 4px 0; }
+.about-dialog b { color: var(--text); font-weight: 500; }
 footer { display: flex; justify-content: space-between; gap: 20px; padding: 26px 0; margin-top: 45px; border-top: 1px solid var(--border); color: #687786; font-size: 8px; }
 
 @media (max-width: 1100px) {
