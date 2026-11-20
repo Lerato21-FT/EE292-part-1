@@ -75,6 +75,18 @@ Tasks are specified here. When done with a task, label it as complete. Execute t
   - Helena's "API sends the starting-field range and equations" is covered
     by the geometry task below.
 
+- [x] Address peer review round 6 (`feedback/20261119_abgup05_l6134546.md`,
+  `feedback/20261119_wgguan_l6134546_8a.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`. Added the CI workflow running
+    `make verify`, an AGENTS.md rule to stop when Docker is down, the skills
+    `review-to-tasks` and `verify-and-record`, and an update to the
+    check-in. Rejected: automatically removing low-R² sweeps (reason in
+    `docs/agent-setup-and-review-response.md`). Log:
+    `notes/2026-11-19-round6-session-log.md`.
+- [ ] Turn on branch protection for `main` on GitHub, requiring the `verify`
+  check (owner only; wgguan, round 6). Push first, and confirm that the
+  workflow runs green once.
+
 - [ ] Put each measurement geometry in one record (peer review round 3,
   `feedback/20261119_wgguan_l6134546_5a.md`). Staged 2026-11-19; not started.
   - In `pipeline.py`, one record per geometry holds the model function, the

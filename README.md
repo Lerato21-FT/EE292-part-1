@@ -388,6 +388,22 @@ tripwire: g, Beff,⊥ and B4 to ≤ 1e-5, α to 1e-7, and the number of flagged
 sweeps (36 low-R², 44 modulation). Any change to the fitting moves it. When
 that happens, explain the change in the commit before updating the pins;
 the pins are not evidence that the values are right.
+**Safety nets.** Wrong results are caught in layers:
+- known-answer and hand-calculated tests, plus CODATA-derived constants;
+- the tightly pinned bundled-data tripwire;
+- the API smoke check and the Chromium checks;
+- on-page warnings (fit quality, modulation, mirror solution, damping not
+  established), read by a person.
+
+The workflow in [`.github/workflows/verify.yml`](.github/workflows/verify.yml)
+runs `make verify` on every pull request and every push to `main`. Turn on
+branch protection for `main` and require that check, so `main` cannot move
+on a red run. Two project skills for Claude Code live in `.claude/skills/`:
+- `verify-and-record` runs the gate and writes the result into the session log;
+- `review-to-tasks` turns a new review in `feedback/` into `TASKS.md` items.
+
+The agent's own setup and its risks are in
+[`docs/agent-setup-and-review-response.md`](docs/agent-setup-and-review-response.md).
 `make profile` times one exclusion analysis on the demo data, cold and warm,
 and prints the top functions from `cProfile`. Per-sweep fits are cached
 while a file is unchanged, so an exclude or restore reruns only the two
