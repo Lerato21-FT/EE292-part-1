@@ -72,6 +72,46 @@ def exercise_browser() -> None:
             exercise_exclusions(page, 49)
             check_chart_layout(page)
             page.screenshot(path=str(ARTIFACTS / "in-plane-desktop.png"), full_page=True)
+            # Round 1: the demo linewidth fit (R² ≈ 0.1) must not be shown as an established α.
+            expect(page.locator("#damping-status")).to_be_visible()
+            expect(page.locator("#damping-card")).not_to_have_class("metric-card metric-accent")
+            expect(page.locator("#kittel-equation math msqrt")).to_have_count(1)
+            expect(page.locator("#linewidth-equation math mfrac")).to_have_count(1)
+            expect(page.locator("#model-note li")).to_have_count(4)
+            page.get_by_role("button", name="New to FMR? Start here").click()
+            expect(page.locator("#about-dialog")).to_be_visible()
+            page.screenshot(path=str(ARTIFACTS / "about-dialog.png"))
+            page.locator("#about-close").click()
+            expect(page.locator("#about-dialog")).to_be_hidden()
+            with page.expect_download() as download_event:
+                page.locator('[data-chart="linewidth-chart"]').click()
+            download_event.value.save_as(ARTIFACTS / "fmr-linewidth-in_plane.png")
+            # Round 4: light by default, result first, a plain summary, and a dark theme.
+            expect(page.locator("html")).to_have_attribute("data-theme", "light")
+            expect(page.locator("#result-summary p")).to_have_count(3)
+            expect(page.locator("#result-summary")).to_contain_text("is not established")
+            assert page.evaluate("""() => {
+              const summary = document.querySelector('#results-summary').getBoundingClientRect();
+              const controls = document.querySelector('.controls').getBoundingClientRect();
+              return summary.top < controls.top;
+            }"""), "the fit summary must come before the controls"
+            page.get_by_role("button", name="Dark", exact=True).click()
+            expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+            page.wait_for_function(
+                "document.querySelector('#kittel-chart').layout.paper_bgcolor === '#101923'"
+            )
+            expect(page.locator("#error-message")).to_be_hidden()
+            assert page.evaluate(
+                "document.querySelector('#kittel-chart').layout.xaxis.gridcolor"
+            ).startswith("rgba(")
+            page.screenshot(path=str(ARTIFACTS / "in-plane-dark.png"), full_page=True)
+            page.reload()
+            wait_for_results(page)
+            expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+            page.get_by_role("button", name="Light", exact=True).click()
+            page.wait_for_function(
+                "document.querySelector('#kittel-chart').layout.paper_bgcolor === '#ffffff'"
+            )
             page.get_by_role("button", name="Out-of-plane", exact=True).click()
             expect(page.locator("#results")).to_be_hidden()
             expect(page.locator("#analyze-button")).to_be_disabled()
@@ -108,7 +148,7 @@ def exercise_browser() -> None:
                 download.save_as(destination)
                 payload = destination.read_bytes()
                 assert payload[:8] == b"\x89PNG\r\n\x1a\n"
-                assert struct.unpack(">II", payload[16:24]) == (2000, 1400)
+                assert struct.unpack(">II", payload[16:24]) == (2400, 1700)
 
             page.reload()
             wait_for_results(page)

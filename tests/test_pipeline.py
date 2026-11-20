@@ -81,15 +81,19 @@ def test_linewidth_fit_converts_peak_to_peak_slope_to_damping():
 
     fit = fit_linewidth(frequency_ghz, linewidth_oe, expected_g)
 
-    assert fit.damping == pytest.approx(expected_damping, rel=1e-10)
-    assert fit.slope_oe_per_ghz == pytest.approx(slope_oe_per_ghz, rel=1e-10)
+    # μB/h itself is only known to about 3e-10 (CODATA 2018 electron mass), so asking the
+    # damping for 1e-10 tests rounding, not physics. The constant has its own test below.
+    assert fit.damping == pytest.approx(expected_damping, rel=1e-9)
+    assert fit.slope_oe_per_ghz == pytest.approx(slope_oe_per_ghz, rel=1e-9)
     assert fit.r_squared == pytest.approx(1.0)
 
 
 def test_gyromagnetic_constant_matches_codata():
     """μB/h must equal e/(4π mₑ); this catches the classic 28 GHz/T (γ/2π) mix-up."""
+    # Both sides come from the same CODATA 2018 inputs, so they agree to rounding
+    # (~1e-12). 2e-11 still catches a single wrong digit, such as 13.99624493361.
     assert pipeline.BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T == pytest.approx(
-        BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T, rel=1e-9
+        BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T, rel=2e-11
     )
     assert BOHR_MAGNETON_OVER_PLANCK_GHZ_PER_T == pytest.approx(13.99624494, rel=1e-9)
 
@@ -202,14 +206,21 @@ def test_broadband_dataset_analysis_returns_all_sweeps():
     assert len(result["measurements"]) == 49
     assert result["measurements"][0]["frequency_ghz"] == 5.0
     assert result["measurements"][-1]["frequency_ghz"] == 29.0
-    assert result["kittel_fit"]["g_factor"] == pytest.approx(1.9957, abs=0.02)
-    assert result["kittel_fit"]["effective_perpendicular_field_t"] == pytest.approx(
-        0.9487, abs=0.04
-    )
-    assert result["kittel_fit"]["fourfold_field_t"] == pytest.approx(-0.02006, abs=0.01)
-    assert result["kittel_fit"]["r_squared"] > 0.99
-    assert result["linewidth_fit"]["damping"] == pytest.approx(0.00492, abs=0.001)
-    assert len(result["kittel_fit"]["curve"]) == 300
+    # Tripwire, not evidence: these are the app's own results on the bundled data,
+    # recorded on 2026-11-19 with the locked dependencies. Any change to resonance
+    # extraction, seeds, bounds or constants moves them and must be explained before
+    # the pins are updated. Tolerances (≤ 1e-5 on g, 1e-7 on α) are far below any
+    # physical change but allow for floating-point differences between CPUs.
+    # (Peer review round 4, cd24.)
+    kittel, linewidth = result["kittel_fit"], result["linewidth_fit"]
+    assert kittel["g_factor"] == pytest.approx(1.995651, abs=1e-5)
+    assert kittel["effective_perpendicular_field_t"] == pytest.approx(0.948693, abs=1e-5)
+    assert kittel["fourfold_field_t"] == pytest.approx(-0.0200575, abs=1e-6)
+    assert kittel["r_squared"] > 0.99
+    assert linewidth["damping"] == pytest.approx(0.0049245, abs=1e-7)
+    assert sum(p["low_quality"] for p in result["measurements"]) == 36
+    assert sum(p["modulation_warning"] for p in result["measurements"]) == 44
+    assert len(kittel["curve"]) == 300
 
 
 @pytest.mark.parametrize("geometry", ["in_plane", "out_of_plane"])
@@ -283,3 +294,48 @@ def test_bundled_sweeps_report_their_modulation_amplitude():
     for point in result["measurements"]:
         assert point["modulation_rms_oe"] == 2.0
         assert point["modulation_pp_oe"] == pytest.approx(5.656854, rel=1e-6)
+
+
+def test_clean_linewidth_line_establishes_damping():
+    """A straight line with a positive ΔH0 raises no damping concern."""
+    fit = fit_linewidth([5.0, 10.0, 15.0, 20.0], [12.0 + f for f in [5.0, 10.0, 15.0, 20.0]], 2.0)
+
+    assert fit.damping_established is True
+    assert fit.damping_concerns == []
+
+
+def test_low_linewidth_r_squared_means_damping_is_not_established():
+    """Scatter that the line barely explains (R² < 0.5) must not be presented as α."""
+    frequency_ghz = [5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+    fit = fit_linewidth(frequency_ghz, [20.0, 30.0, 18.0, 31.0, 21.0, 32.0], 2.0)
+
+    assert fit.r_squared < 0.5
+    assert fit.damping_established is False
+    assert any("R²" in concern for concern in fit.damping_concerns)
+
+
+def test_intercept_negative_beyond_two_sigma_means_damping_is_not_established():
+    """ΔH0 cannot be negative; −10 Oe with a tiny error flags α, but R² is fine."""
+    frequency_ghz = [5.0, 10.0, 15.0, 20.0, 25.0]
+    noise_oe = [0.1, -0.1, 0.0, 0.1, -0.1]
+    linewidth_oe = [-10.0 + 2.0 * f + n for f, n in zip(frequency_ghz, noise_oe, strict=True)]
+    fit = fit_linewidth(frequency_ghz, linewidth_oe, 2.0)
+
+    assert fit.r_squared > 0.99
+    assert fit.intercept_oe + 2 * fit.intercept_sigma_oe < 0
+    assert fit.damping_established is False
+    assert any("ΔH0" in concern for concern in fit.damping_concerns)
+
+
+def test_intercept_negative_within_two_sigma_still_establishes_damping():
+    """Like the review's −14.5 ± 17 Oe: negative, but consistent with zero, so no flag.
+
+    The hand-worked x = 1..4, y = 0, 1, 1, 3 line has ΔH0 = −1.0 ± √0.525 = −1.0 ± 0.72 Oe
+    and R² = 1 − 0.70/4.75 = 0.853.
+    """
+    fit = fit_linewidth([1.0, 2.0, 3.0, 4.0], [0.0, 1.0, 1.0, 3.0], 2.0)
+
+    assert fit.intercept_oe < 0
+    assert fit.intercept_oe + 2 * fit.intercept_sigma_oe >= 0
+    assert fit.r_squared == pytest.approx(1 - 0.70 / 4.75)
+    assert fit.damping_established is True

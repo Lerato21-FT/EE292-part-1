@@ -30,6 +30,9 @@ or changing anything in `docker/`, and keep it true when you change the design.
 - Merging into any branch other than your feature branch needs my explicit
   approval, every time. Approval for one merge is not approval for the next.
 - Never force-push, rewrite published history, or change git configuration.
+- Never merge, or ask for a merge, until `make verify` has passed on that
+  revision. If Docker will not start, stop and say so; do not continue
+  without the run.
 
 ## Before you start
 

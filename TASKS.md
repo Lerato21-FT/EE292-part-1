@@ -31,10 +31,78 @@ Tasks are specified here. When done with a task, label it as complete. Execute t
   - **Not verified:** none of the tests, `make verify` or `make fresh-verify`
     were run. Docker Desktop was unavailable, and the owner chose to skip
     the run. The fail-first demonstration was skipped too.
-  - Still open: tighten the golden tolerances in
-    `test_broadband_dataset_analysis_returns_all_sweeps`, which needs one
-    run to record current values. Rotating the API key from `3fee3a2` and
-    setting a git identity need the owner.
+  - Golden tolerances tightened on 2026-11-19 (round 4). Still open:
+    rotating the API key from `3fee3a2` and setting a git identity, both of
+    which need the owner.
+
+- [x] Address peer review round 1 (`feedback/20261014_allenduh_l6134546.md`,
+  `feedback/20261119_wgguan_l6134546_3a.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`. Fixed a one-digit typo in μB/h.
+    The damping test now uses a documented 1e-9 tolerance. The in-plane
+    mirror solution is reported, and α is marked "not established" when
+    R² < 0.5 or ΔH0 + 2σ < 0. Added an intro dialog with the "so what",
+    MathML equations, print-style PNG export and a model-scope list.
+  - Fail-first shown: 2 failures before any change, then 7 new tests that
+    failed on the old code. Log: `notes/2026-11-19-round1-session-log.md`.
+
+- [x] Add the milestones and top three risks to the README (peer review round 2,
+  `feedback/20261013_luyunqi_l6134546.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`, in the README section "Milestones
+    and risks". The owner confirmed the three risks. "Why the work matters" and the
+    quantitative PROMPT.md were already done. Log:
+    `notes/2026-11-19-round2-session-log.md`.
 
 - [ ] Export plotted data and fits as a text/CSV download, including the fits to
   the raw traces (`notes/2026-11-11.md`, luyunqi 2026-10-13).
+  - Postponed by the owner on 2026-11-19 (round 2 review); it is the next milestone.
+
+- [x] Address peer review round 4 (`feedback/20261118_cd24_l6134546.md`,
+  `feedback/20261119_sayragr_l6134546.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`. The bundled results are
+    pinned as a tripwire. The page leads with the result and a backend
+    `summary`. Colours have one meaning each, with violet for selected.
+    There is a light theme (the default) and a dark toggle.
+    Log: `notes/2026-11-19-round4-session-log.md`.
+
+- [x] Address peer review round 5 (`feedback/20261119_cd24_l6134546.md`,
+  `feedback/20261119_wgguan_l6134546_7a.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`. Per-sweep fits are cached, and
+    `make profile` shows an exclusion going from 0.13 s to 0.002 s with
+    identical results. Added a system drawing in ARCHITECTURE.md. The README
+    names the irreplaceable data and its backups (Git, GitHub, cloud drive)
+    and the shared-dataset limit. Log:
+    `notes/2026-11-19-round5-session-log.md`.
+  - Helena's "API sends the starting-field range and equations" is covered
+    by the geometry task below.
+
+- [x] Address peer review round 6 (`feedback/20261119_abgup05_l6134546.md`,
+  `feedback/20261119_wgguan_l6134546_8a.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`. Added the CI workflow running
+    `make verify`, an AGENTS.md rule to stop when Docker is down, the skills
+    `review-to-tasks` and `verify-and-record`, and an update to the
+    check-in. Rejected: automatically removing low-R² sweeps (reason in
+    `docs/agent-setup-and-review-response.md`). Log:
+    `notes/2026-11-19-round6-session-log.md`.
+- [ ] Turn on branch protection for `main` on GitHub, requiring the `verify`
+  check (owner only; wgguan, round 6). Push first, and confirm that the
+  workflow runs green once.
+
+- [ ] Put each measurement geometry in one record (peer review round 3,
+  `feedback/20261119_wgguan_l6134546_5a.md`). Staged 2026-11-19; not started.
+  - In `pipeline.py`, one record per geometry holds the model function, the
+    fitter, the parameter bounds, the default starting field and its allowed
+    range, the equation, and the labels. The pipeline picks the record once by
+    geometry, instead of the `if geometry == ...` branches in
+    `resolve_analysis_settings` and `_fit_magnetic_properties`.
+  - The API returns the bounds, the starting-field range, the equations and
+    the labels with the result, so `app.js` only displays them and has no
+    geometry branches. Adding a geometry, such as a tilted field, should be
+    one new record.
+  - Start with the values that are already copied. The starting-field range
+    (−2 or 0 up to 2 T) is in `app.js`, `resolve_analysis_settings` and both
+    Kittel fitters. The equation is in the API strings, the `app.js` plot
+    annotations, and the `EQUATIONS` MathML added in round 1. The per-geometry
+    `MODEL_SCOPE` text, also added in round 1, belongs in the record too.
+  - Done means: the existing tests pass unchanged. A new test checks that
+    every geometry record is complete and that the API returns it. A
+    `grep` for `out_of_plane` in `app.js` finds only the geometry toggle.

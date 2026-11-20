@@ -73,6 +73,8 @@ Suggested in peer review (luyunqi, 2026-10-13) and the referee review of
 |---|---|---|---|
 | Resonance fit quality | R² < 0.98 | Flag the sweep; the user decides whether to exclude it | A clean single derivative-Lorentzian line on these sweeps fits with R² near 1. Below 0.98, more than 2 % of the signal variance is unexplained, which usually means noise, a second mode, or a distorted line, and the extracted Hres and ΔHpp should be checked by eye. The flag is advisory because a real but noisy sweep can still be useful. |
 | Damping resolution | slope < 2σ_slope | Report α, marked "consistent with zero" | A slope within 2σ of zero is not a measurement of damping. |
+| Damping not established | linewidth R² < 0.5, or ΔH0 + 2σ < 0 | Report α, unhighlighted and marked "not established", with the reason | A line that explains less than half of the linewidth variance does not measure a slope, and a physical ΔH0 cannot be negative beyond its error. Requiring 2σ keeps a negative but zero-consistent intercept (e.g. −14.5 ± 17 Oe) from triggering it. Owner decision, round 1 review. |
+| In-plane mirror solution | mirror B4 = B4 + Beff,⊥ inside the B4 fit range | Warn and return the mirror values | The bound Beff,⊥ > 0 picks one of two equally good solutions by assumption, not from the data. |
 | Negative linewidth slope | slope < 0 | No α; g and Beff,⊥ are still reported | Negative damping is unphysical. It does not invalidate the Kittel fit. |
 | Parameter at a bound | within 1e-4 of its allowed range | Warn | A bounded value is a limit of the model, not a measured property. |
 | Modulation broadening | 2√2·H_rms > ΔHpp/3 | Warn for each sweep | Larger modulation broadens and distorts the derivative line (see `docs/fmr-model.md`). |

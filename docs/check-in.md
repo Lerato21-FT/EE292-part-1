@@ -7,6 +7,30 @@ check-in describes `main` at `8527d4a`. The open referee follow-up is on
 `fix/referee-2026-11-16` (`88a8f7e`) and is **not yet verified**, so none of
 it is listed under "What works".
 
+## Update, 2026-11-19 (peer review round 6)
+
+The sections below describe `main` at `8527d4a`, as first written. Since
+then, the referee branch was merged into `main` as `4c4b30b` without a
+`make verify` run, and 2 of its 56 tests failed there (Helena Guan, round 6).
+Both failures are fixed on `fix/round1-feedback`, where `make verify` and
+`make fresh-verify` pass with 67 tests. That branch is what the claims below
+now refer to, once it is merged.
+
+Two caveats change the claims:
+- **The in-plane mirror solution.** A film with negative Beff,⊥ used to be
+  fitted by its mirror pair with R² = 1 and no warning, so every check
+  passed. The app now names the mirror whenever the data cannot rule it out.
+- **Damping on the bundled data is not established.** α = 0.0049 ± 0.0022
+  comes from a linewidth fit with R² = 0.096. Abhiraj Gupta (round 6) traced
+  this to five sweeps (5.5, 26.5, 27, 28 and 29 GHz). Excluding them gives
+  α = 0.00125 ± 0.000035 with linewidth R² = 0.968 (checked 2026-11-19).
+  The app flags α as **not established**, and leaves the exclusion to the
+  researcher.
+
+The cut items "typeset equations and an intro for non-specialists" were
+done in round 1. The golden values marked "throw away" were re-pinned
+tightly in round 4.
+
 ## What works
 
 - **Full gate from a fresh clone:** `make fresh-verify` passed at `dcae08c`.

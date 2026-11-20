@@ -4,6 +4,59 @@ How this project is put together, and why. For a new project this is the
 specification to build from; afterwards it is kept true as the project
 changes. The rules that apply to every task are in AGENTS.md.
 
+## System at a glance
+
+Everything runs on one computer. Numbered boundaries are described below the
+drawing.
+
+```mermaid
+flowchart LR
+  subgraph host["Your computer (host)"]
+    browser["Web browser<br/>draws with Plotly,<br/>computes no results"]
+    repo["Git repository<br/>src/, tests/, broadband_100/,<br/>docker/*.lock"]
+    artifacts["artifacts/<br/>screenshots and PNGs"]
+    subgraph docker["Docker"]
+      build["make build<br/>image build copies code, tests,<br/>demo CSVs and locked deps in"]
+      subgraph app["app container: read-only, runs as you"]
+        api["FastAPI api.py<br/>routes only"]
+        pipeline["pipeline.py<br/>fits and checks,<br/>per-sweep fit cache"]
+        data["/data<br/>49 demo CSVs, in the image"]
+        tmp["/tmp tmpfs<br/>uploaded folders,<br/>gone on stop"]
+      end
+      checks["browser-check container<br/>make browser only:<br/>Chromium + its own API"]
+    end
+  end
+  repo -- "copied at build time,<br/>not mounted" --> build
+  build --> app
+  build --> checks
+  browser -- "1: HTTP + JSON<br/>127.0.0.1:8765 → 8000" --> api
+  api -- "2: one call per endpoint" --> pipeline
+  pipeline --> data
+  browser -- "3: folder upload,<br/>validated, then swapped in" --> tmp
+  tmp --> pipeline
+  checks -- "the only mount" --> artifacts
+```
+
+1. **Browser ↔ API:** HTTP and JSON typed by `models.py`, published only
+   on `127.0.0.1`. The page computes nothing a scientist would call a
+   result.
+2. **API ↔ science:** `api.py` holds routes only and calls one function in
+   `pipeline.py` per endpoint; `pipeline.py` has no web code.
+3. **Upload ↔ active data:** `DatasetStore` validates a whole folder in
+   `/tmp` before swapping it in under a lock, so a bad upload never replaces
+   the active data.
+
+Two consequences follow from the drawing. Code reaches the container only
+through a rebuild, so a code change needs `make up`. Uploads live only in
+the container's memory-backed `/tmp`, so they vanish on restart.
+
+Known limits of these boundaries:
+- Model knowledge still crosses boundary 1 twice: `app.js` repeats the
+  starting-field range and the equations. That is the staged geometry task
+  in `TASKS.md`.
+- There is one active dataset for the whole app, not one per user or tab.
+  Two tabs that upload different folders replace each other's data.
+
 ## Stack
 
 - Backend: Python 3.14 (base image `python:3.14.0-slim-bookworm`)
@@ -33,6 +86,9 @@ src/web/             the page: index.html, app.js, styles.css
 tests/               pytest
 docs/                decisions worth remembering, one short file each
 notes/               daily implementation records, named YYYY-MM-DD.md
+.github/workflows/   CI: verify.yml runs `make verify` on pull requests and main
+.claude/agents/      referee.md, a read-only review subagent
+.claude/skills/      review-to-tasks, verify-and-record (project skills)
 artifacts/           gitignored browser screenshots and exported plots
 .cache/buildx/       gitignored Docker builder metadata kept inside the repo
 data/                for future datasets: raw/ is never modified,
@@ -61,6 +117,8 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   Resonance extraction and aggregate fit success do not gate activation.
 - `pipeline.py` owns CSV parsing, resonance extraction, and both scientific
   fits. The frontend receives complete data and fit curves from the API.
+  `summarize_analysis` turns the finished result into the `summary`
+  sentences, so every judgement on the page comes from the backend.
 - Analysis accepts request-scoped `excluded_measurement_ids`, validated for
   length, uniqueness and membership in the active dataset. Both aggregate
   fits use the same included subset; damping uses its refitted g factor.
@@ -79,7 +137,14 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   covariance, linewidth errors from ordinary least squares, and the damping
   error from slope and g errors in quadrature. `at_bound` names Kittel
   parameters at a fit bound. Damping is `damping_resolved: false` when the
-  slope is within 2σ of zero.
+  slope is within 2σ of zero, and `damping_established: false` (reasons in
+  `damping_concerns`) when it is unresolved, the linewidth R² is below
+  `LINEWIDTH_R_SQUARED_THRESHOLD` (0.5), or ΔH0 + 2σ < 0. `fit_kittel`
+  reports the in-plane mirror solution `(−Beff,⊥, B4 + Beff,⊥)` in the
+  `mirror_*` fields when its B4 lies inside the B4 fit range.
+- The frontend typesets fixed model equations as MathML (the API `equation`
+  string is the accessible label) and re-renders charts on a light layout
+  for PNG export. Both are presentation only; every number comes from the API.
 - Quality checks are computed in `pipeline.py` and returned as flags and a
   `warnings` list: resonance R² below `RESONANCE_R_SQUARED_THRESHOLD` (0.98),
   and peak-to-peak modulation (2√2 × the `OeRMS` value in the filename)
@@ -104,8 +169,8 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   JavaScript formats labels, displays equations and handles interaction.
 - Clicking markers on either scientific chart or using an accessible dataset
   list selects sweep IDs. Exclude/restore controls request a new analysis;
-  selected markers are cyan and excluded markers are gray crosses in both
-  plots. A failed request leaves the previous results available. Exclusions
+  selected markers are violet and excluded markers are gray crosses in both
+  plots. Orange is always measured data and cyan always a model fit. A failed request leaves the previous results available. Exclusions
   survive refits within the page and reset on reload or a successful upload.
 - Valid responses with unavailable fits clear previous property values and
   curves, display an explanatory status, and retain point selection and raw
@@ -116,6 +181,14 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   annotations. Backend warnings are listed above the cards, and flagged
   sweeps are labelled in the dataset list. A damping-only failure keeps the
   Kittel results on screen.
+- The results are split across two sections: `#results-summary` (the
+  backend `summary` sentences, warnings and cards) comes before the
+  controls, and `#results` (exclusions, plots, raw trace) after them. One
+  helper shows and hides both.
+- Colours are CSS custom properties on `:root`, light by default, with a
+  `[data-theme="dark"]` override. The topbar toggle sets `data-theme` and
+  stores the choice in `localStorage`. Plot colours are read from the same
+  tokens, and the charts redraw on a theme change.
 - Plotly charts render after their results section becomes visible, resize
   with `ResizeObserver`, and become one column below 1100 px. Equations,
   legends and axes have reserved margins. PNGs include fitted values and
@@ -148,7 +221,11 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   read-only except for `/tmp`.
 - The bundled dataset is the startup default. Uploaded datasets are held only
   in container `/tmp` (a tmpfs), replace the active dataset after successful
-  validation, and are discarded when the container stops. Plot images are
+  validation, and are discarded when the container stops. Each sweep's parsed
+  data and resonance fit are cached in memory, keyed on the file's path,
+  size and modification time and the linewidth seed (at most
+  `RESONANCE_CACHE_SIZE` sweeps). Exclude, restore and refit therefore rerun
+  only the two property fits. The cache never outlives the process. Plot images are
   exported by Plotly in the browser and are not stored by the backend.
 
 ## Makefile

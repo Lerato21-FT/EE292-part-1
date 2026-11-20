@@ -122,14 +122,32 @@ def test_decreasing_linewidth_keeps_the_kittel_fit(tmp_path: Path) -> None:
     assert "decreases" in result["linewidth_fit_error"]
 
 
-def test_parameter_pinned_at_a_bound_is_reported(tmp_path: Path) -> None:
-    """A film with Beff,⊥ < 0 cannot be represented in-plane; the bound must be flagged."""
+def test_mirror_solution_is_reported_for_a_negative_effective_field(tmp_path: Path) -> None:
+    """Beff,⊥ = −0.1 T, B4 = 0 has the exact mirror Beff,⊥ = +0.1 T, B4 = −0.1 T.
+
+    The bounds pick the mirror with R² = 1, so no parameter is at a bound. The pipeline
+    must name the other solution instead of presenting the pick as a measurement.
+    """
     directory = write_in_plane_dataset(tmp_path / "pma", effective_field_t=-0.1, fourfold_field_t=0)
 
     result = analyze_dataset(directory)
 
-    assert "effective_perpendicular_field_t" in result["kittel_fit"]["at_bound"]
-    assert any("bound" in warning for warning in result["warnings"])
+    kittel = result["kittel_fit"]
+    assert kittel["effective_perpendicular_field_t"] == pytest.approx(0.1, abs=1e-3)
+    assert kittel["fourfold_field_t"] == pytest.approx(-0.1, abs=1e-3)
+    assert kittel["mirror_effective_perpendicular_field_t"] == pytest.approx(-0.1, abs=1e-3)
+    assert kittel["mirror_fourfold_field_t"] == pytest.approx(0.0, abs=1e-3)
+    mirror_warnings = [w for w in result["warnings"] if "mirror solution" in w]
+    assert len(mirror_warnings) == 1
+    assert "-0.1" in mirror_warnings[0]
+
+
+def test_mirror_outside_the_fourfold_range_is_not_reported(tmp_path: Path) -> None:
+    """Beff,⊥ = 0.9 T, B4 = −0.015 T: the mirror needs B4 = 0.885 T > 0.5 T, so it is ruled out."""
+    result = analyze_dataset(write_in_plane_dataset(tmp_path / "ip"))
+
+    assert result["kittel_fit"]["mirror_effective_perpendicular_field_t"] is None
+    assert not any("mirror solution" in warning for warning in result["warnings"])
 
 
 def test_poor_resonance_fits_are_flagged_but_kept(tmp_path: Path) -> None:
@@ -166,3 +184,115 @@ def test_modulation_broadening_condition_is_checked(
         assert point["modulation_pp_oe"] == pytest.approx(2 * math.sqrt(2) * modulation_rms_oe)
         assert point["modulation_warning"] is warned
     assert any("modulation" in warning for warning in result["warnings"]) is warned
+
+
+def test_summary_states_the_result_in_plain_sentences(tmp_path: Path) -> None:
+    """A clean dataset gets a two-part result statement and says no warnings were raised."""
+    result = analyze_dataset(write_in_plane_dataset(tmp_path / "clean"))
+
+    summary = result["summary"]
+    assert len(summary) == 3
+    assert summary[0].startswith(
+        "From 13 included sweeps, the in-plane Kittel fit gives g = 2.0500"
+    )
+    assert "B4 = -0.0150" in summary[0]
+    assert summary[1].startswith("The Gilbert damping is α = 0.004")
+    assert summary[2] == "No quality warnings were raised for the included sweeps."
+
+
+def test_summary_says_when_damping_is_not_established(tmp_path: Path) -> None:
+    """Scattered linewidths: the summary must not present α as a result."""
+    directory = write_in_plane_dataset(
+        tmp_path / "scatter",
+        linewidth=lambda f: 20.0 + 0.3 * f + (10.0 if (f // 2) % 2 else -10.0),
+    )
+
+    result = analyze_dataset(directory)
+
+    assert result["linewidth_fit"]["damping_established"] is False
+    assert "is not established" in result["summary"][1]
+    assert result["summary"][2].startswith("Read the ")
+
+
+def test_summary_explains_a_missing_fit(tmp_path: Path) -> None:
+    """When no property fit is possible, the summary says so and gives the reason."""
+    directory = write_in_plane_dataset(tmp_path / "few")
+    ids = sorted(path.name for path in directory.glob("*.csv"))
+
+    result = analyze_dataset(directory, excluded_measurement_ids=ids[:-3])
+
+    assert result["kittel_fit"] is None
+    assert result["summary"][0] == (
+        "No magnetic properties are reported yet for these 3 included sweeps."
+    )
+    assert result["summary"][1] == result["fit_error"]
+
+
+def count_resonance_fits(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Wrap the per-sweep fitter so a test can count how often it runs."""
+    from app import pipeline
+
+    calls = [0]
+    original = pipeline.fit_derivative_signal
+
+    def counted(*args, **kwargs):
+        calls[0] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "fit_derivative_signal", counted)
+    return calls
+
+
+def test_exclusion_reuses_cached_resonance_fits(tmp_path: Path, monkeypatch) -> None:
+    """Excluding a sweep refits only the two property fits, not the 13 resonance lines."""
+    from app.pipeline import clear_resonance_cache
+
+    directory = write_in_plane_dataset(tmp_path / "cache")
+    clear_resonance_cache()
+    calls = count_resonance_fits(monkeypatch)
+
+    analyze_dataset(directory)
+    assert calls[0] == 13
+    first_id = sorted(path.name for path in directory.glob("*.csv"))[0]
+    analyze_dataset(directory, excluded_measurement_ids=[first_id])
+    analyze_dataset(directory)
+    assert calls[0] == 13
+
+
+def test_cached_analysis_is_identical_to_a_cold_one(tmp_path: Path) -> None:
+    """The cache changes no answer: warm and cold results are equal, field by field."""
+    from app.pipeline import clear_resonance_cache
+
+    directory = write_in_plane_dataset(tmp_path / "same")
+    first_id = sorted(path.name for path in directory.glob("*.csv"))[0]
+    clear_resonance_cache()
+    analyze_dataset(directory)
+    warm = analyze_dataset(directory, excluded_measurement_ids=[first_id])
+    clear_resonance_cache()
+    cold = analyze_dataset(directory, excluded_measurement_ids=[first_id])
+
+    assert warm == cold
+
+
+def test_changed_file_or_setting_is_refitted(tmp_path: Path, monkeypatch) -> None:
+    """A rewritten sweep refits that sweep only; a new linewidth seed refits all of them."""
+    import os
+
+    from app.pipeline import clear_resonance_cache
+
+    directory = write_in_plane_dataset(tmp_path / "change")
+    clear_resonance_cache()
+    calls = count_resonance_fits(monkeypatch)
+    analyze_dataset(directory)
+    assert calls[0] == 13
+
+    changed = sorted(directory.glob("*.csv"))[0]
+    write_sweep(changed, 900.0, 25.0)
+    stat = changed.stat()
+    os.utime(changed, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    result = analyze_dataset(directory)
+    assert calls[0] == 14
+    assert result["measurements"][0]["resonance_field_oe"] == pytest.approx(900.0, abs=0.5)
+
+    analyze_dataset(directory, initial_linewidth_pp_oe=15.0)
+    assert calls[0] == 27

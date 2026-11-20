@@ -1,10 +1,58 @@
 # FMR / Field Analysis
 
-A local-only web app for analyzing field-swept ferromagnetic resonance
-measurements recorded with a lock-in amplifier. The FastAPI backend reads CSV
-sweeps, fits each derivative resonance, extracts its peak-to-peak linewidth,
-and fits the dispersion and damping models. The browser only displays API
-results and raw traces; it does not perform scientific calculations.
+For researchers who measure ferromagnetic resonance (FMR) of magnetic thin
+films with field sweeps and a lock-in amplifier. Give it a folder of sweeps,
+one CSV per microwave frequency, and it returns three numbers with 1σ errors,
+on your own computer: the film's **g-factor**, its **effective perpendicular
+field** Beff,⊥, and its **Gilbert damping** α. Together they tell you whether
+a film has the anisotropy and the low damping you grew it for, without fitting
+dozens of resonance lines by hand.
+
+**How it works:** it is a local-only web app. A FastAPI backend reads the
+CSV sweeps and fits each resonance line to get its position and width. It then
+fits how those change with frequency to get the three numbers. The browser
+only displays the API's results and the raw traces; it does no scientific
+calculation.
+
+## Why it matters
+
+FMR measures how the magnetization of a film precesses in a magnetic field.
+The g-factor describes how fast it precesses per tesla. Beff,⊥ says whether
+the film prefers in-plane or out-of-plane magnetization. α says how quickly
+the precession dies out. Magnetic insulator films are candidates
+for spin-wave and spintronic devices, where low damping means spin waves
+travel further and magnetization switches with less current, so α decides
+whether a film is useful.
+
+Getting these numbers by hand means fitting every resonance line one by one,
+then fitting the dispersion and the linewidth. This app does all of it from a
+folder of CSV files, keeps every sweep inspectable, and says in plain words
+when a result should not be trusted yet: a low-quality line, broadened
+linewidths, a mirror solution the data cannot rule out, or a damping value
+that is not established. The **New to FMR? Start here** button in the app
+gives the same introduction for readers outside the field.
+
+## Milestones and risks
+
+**Working now:** upload a folder of sweeps, fit every resonance line, then fit
+the Kittel and linewidth models with 1σ errors. Linked exclusions and
+plain-language quality warnings are included. The next milestones, in order:
+
+1. **CSV export** of the plotted points, both fits, and the fitted curve for
+   every raw sweep, so the results can be reused outside the app. Postponed
+   for now; it is the next task in [`TASKS.md`](TASKS.md).
+2. **Angle-dependent sweeps.** Fitting several in-plane azimuths would show
+   whether B4 really has four-fold symmetry. A single angle cannot.
+3. **A measured Ms.** An independent saturation magnetization separates the
+   anisotropy field H2⊥ (and Ku) from Beff,⊥ = μ0 Ms − μ0 H2⊥.
+
+The three largest risks to trusting the results, and what is done about each:
+
+| Risk | Why it matters | Mitigation |
+|---|---|---|
+| **Broadened linewidths bias α** | On the demo data, 44 of 49 sweeps have field modulation above ΔHpp/3, and the linewidth fit has R² ≈ 0.10. A biased linewidth gives a biased damping. | The app warns about modulation broadening and marks α **not established**. Remeasure at lower modulation before relying on α. |
+| **The in-plane model is ambiguous** | One azimuth cannot confirm four-fold symmetry, and the model has a mirror solution with negative Beff,⊥ that fits equally well. | The app warns when the data cannot rule out the mirror. Out-of-plane sweeps or a measured Ms (milestones 2 and 3) resolve it. |
+| **Validation is mostly synthetic** | The known-answer tests use generated data. The broadband golden values are the app's own output, now pinned tightly (g to 1e-5, α to 1e-7), so they catch changes, not errors. No result has been compared with an independent measurement of this film. | Treat the golden values as a tripwire only. Compare with VNA-FMR or a literature value for the film when one is available. |
 
 ## Run it
 
@@ -36,6 +84,53 @@ use, for example, `make test TEST_PATHS=tests/test_pipeline.py`.
 After editing either dependency manifest, run
 `make lock` and commit the updated manifest and lock together. The CSV folder
 is never modified.
+
+## Where things run, and where the data lives
+
+The drawing at the top of [`ARCHITECTURE.md`](ARCHITECTURE.md#system-at-a-glance)
+shows the whole system. Everything runs on your computer: the browser draws
+the page, and one Docker container on `127.0.0.1:8765` does the analysis.
+Code and the demo data are copied into the image when it is built, so a code
+change needs `make up`.
+
+**The data that cannot be rebuilt:**
+- `broadband_100/` holds the **original 49 LFO48 measurements**. No script
+  can recreate them, and re-measuring is expensive. Copies are kept in this
+  Git repository (on the owner's laptop and on GitHub) and in an **offline
+  backup on the owner's cloud drive**.
+- `notes/` and `feedback/` are human-written records, kept in Git only.
+- Uploaded folders are **never stored**. They live in the container's
+  memory until it stops, so your own folder is the only copy of your data.
+
+Everything else rebuilds from the repository: `make build` installs the
+locked dependencies, and every number on the page is recomputed from the
+CSVs on each request.
+
+**Known limit:** there is one active dataset for the whole app, not one per
+user or browser tab. If two tabs upload different folders, the second
+replaces the first for both.
+
+## Reading the page
+
+- **Result first.** The page opens on the fit summary: two or three plain
+  sentences from the backend, then any warnings, then the four result cards
+  (g, Beff,⊥, B4 and α, each with its 1σ error). The geometry, upload and
+  fit controls come next, then the plots, the raw sweep and the model scope.
+- **One meaning per colour**, the same in every plot, the dataset list and
+  the PNG exports:
+
+  | Mark | Means |
+  |---|---|
+  | Orange point or trace | Measured data |
+  | Cyan line | A model fit |
+  | Violet point | Selected (click a point, or use the list) |
+  | Gray cross | Excluded from both fits; select it, then **Restore selected** |
+
+  A key above the plots repeats this. Warnings are amber, and a result
+  card marked **NOT ESTABLISHED** has lost its cyan highlight.
+- **Light or dark.** The page opens in light mode. The **Light / Dark**
+  toggle at the top right switches the whole page, plots included. The
+  choice is remembered in that browser only. Saved PNGs are always light.
 
 ## Input data
 
@@ -131,6 +226,16 @@ frequencies:
 f = (g μB / h) √[(Bres + B4)(Bres + B4 + Beff,⊥)]
 ```
 
+**Mirror solution.** This in-plane model has an exact twin: swapping
+`(Beff,⊥, B4)` for `(−Beff,⊥, B4 + Beff,⊥)` swaps the two factors under the
+square root, so both give the same curve. The fit bound `Beff,⊥ > 0` always
+picks the first, by assumption rather than from the data. When the twin's B4
+also lies inside the B4 fit range (`|B4| ≤ 0.5 T`), the data cannot tell the
+two apart. The API then returns the twin in `mirror_effective_perpendicular_field_t`
+and `mirror_fourfold_field_t`, and a warning names both values. On the bundled
+demo data the twin needs B4 ≈ 0.93 T, so it is ruled out and no warning appears.
+An out-of-plane sweep or an independent Ms measurement resolves the ambiguity.
+
 The reported `Beff,⊥` is the effective perpendicular field, conventionally
 `μ0 Ms − μ0 H2⊥`; it is not the uniaxial anisotropy constant by itself. An
 independent saturation magnetization is required to recover that constant.
@@ -190,6 +295,14 @@ hold for a real sample.
   errors of zero, damping is reported but marked *consistent with zero*. If
   the slope is negative, damping is unavailable and g and Beff,⊥ are still
   reported.
+- **Damping not established.** α is still shown, but its card loses the
+  highlight and is marked **NOT ESTABLISHED** when any of these hold: the
+  slope is not resolved (above), the linewidth fit has R² < 0.5, or the
+  intercept is negative by more than two standard errors
+  (ΔH0 + 2σ < 0, since a real inhomogeneous linewidth cannot be negative).
+  The warning names the reason. On the bundled demo data the linewidth fit
+  has R² ≈ 0.10, so α is not established until outlying sweeps are excluded.
+- **Mirror solution.** In-plane only; see *Models and units* above.
 - **Parameters at a bound.** A parameter that ends at its allowed limit is
   named in a warning. Its value is a limit of the model, not a measurement.
 - **Low-quality resonances.** Sweeps whose derivative-Lorentzian fit has
@@ -238,9 +351,17 @@ convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.nc
 - Fit results carry 1σ standard errors (`*_sigma` fields), `at_bound` lists
   Kittel parameters that ended at a fit bound, and `damping_resolved` is
   `false` when the linewidth slope is within two standard errors of zero.
+  `damping_established` is `false`, with reasons in `damping_concerns`, when
+  the slope is unresolved, the linewidth R² is below 0.5, or ΔH0 + 2σ < 0.
+  In-plane `kittel_fit` also has `mirror_effective_perpendicular_field_t` and
+  `mirror_fourfold_field_t`, which are `null` unless the data cannot rule out
+  the mirror solution.
   Each measurement has `low_quality` (resonance R² < 0.98),
   `modulation_rms_oe`, `modulation_pp_oe` and `modulation_warning`. The
-  top-level `warnings` list explains these in words.
+  top-level `warnings` list explains these in words, and `summary` states
+  the outcome in two or three sentences built from the fields above. The
+  sentences cover the Kittel values, the damping or why it is not
+  established, and how many warnings were raised.
 - `GET /api/analysis?geometry=out_of_plane&initial_perpendicular_field_t=-0.4&initial_linewidth_pp_oe=10`
   explicitly selects the perpendicular model. Omitting settings uses the
   active upload's geometry and initialization. The response includes
@@ -260,6 +381,34 @@ recovers known fits through exclusions, and checks failed raw resonance fits.
 It checks chart and label bounds at 1440, 1024, 768, 390, and 320 pixel widths
 for perpendicular data, and desktop/mobile widths for in-plane data.
 Screenshots and exported PNGs are saved under gitignored `artifacts/`.
+**Save PNG** re-renders the chart on a white, larger-type layout for reports
+and slides, at 2400 × 1700 pixels; the page itself keeps its dark theme.
+The bundled 49-sweep test pins this app's own results, so it works as a
+tripwire: g, Beff,⊥ and B4 to ≤ 1e-5, α to 1e-7, and the number of flagged
+sweeps (36 low-R², 44 modulation). Any change to the fitting moves it. When
+that happens, explain the change in the commit before updating the pins;
+the pins are not evidence that the values are right.
+**Safety nets.** Wrong results are caught in layers:
+- known-answer and hand-calculated tests, plus CODATA-derived constants;
+- the tightly pinned bundled-data tripwire;
+- the API smoke check and the Chromium checks;
+- on-page warnings (fit quality, modulation, mirror solution, damping not
+  established), read by a person.
+
+The workflow in [`.github/workflows/verify.yml`](.github/workflows/verify.yml)
+runs `make verify` on every pull request and every push to `main`. Turn on
+branch protection for `main` and require that check, so `main` cannot move
+on a red run. Two project skills for Claude Code live in `.claude/skills/`:
+- `verify-and-record` runs the gate and writes the result into the session log;
+- `review-to-tasks` turns a new review in `feedback/` into `TASKS.md` items.
+
+The agent's own setup and its risks are in
+[`docs/agent-setup-and-review-response.md`](docs/agent-setup-and-review-response.md).
+`make profile` times one exclusion analysis on the demo data, cold and warm,
+and prints the top functions from `cProfile`. Per-sweep fits are cached
+while a file is unchanged, so an exclude or restore reruns only the two
+property fits: 0.002 s instead of 0.13 s, with identical results (measured
+2026-11-19).
 `make review` checks patch whitespace and shows the working tree changes.
 `make fresh-verify` checks the committed revision from a new clone inside
 repository `.cache/`, without local `.env` or uncommitted files. It keeps the
@@ -267,6 +416,7 @@ checkout for inspection.
 Docker builder metadata is kept in gitignored `.cache/buildx/` inside this repository.
 
 Daily implementation records live in [`notes/`](notes/), using
-`YYYY-MM-DD.md` filenames. Each record describes behavior, scientific
+`YYYY-MM-DD.md` filenames; work logs for a review round add the round, as in
+[`notes/2026-11-19-round1-session-log.md`](notes/2026-11-19-round1-session-log.md). Each record describes behavior, scientific
 conventions, tests, and any verification limits. Start with
 [`notes/2026-10-19.md`](notes/2026-10-19.md) for the perpendicular workflow.

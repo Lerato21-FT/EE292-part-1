@@ -51,6 +51,13 @@ class KittelFitResult(BaseModel):
     fourfold_field_sigma_t: float | None
     r_squared: float
     at_bound: list[str] = Field(description="Parameters that ended at a fit bound.")
+    mirror_effective_perpendicular_field_t: float | None = Field(
+        default=None,
+        description="In-plane only: Beff,⊥ of the mirror solution that fits equally well.",
+    )
+    mirror_fourfold_field_t: float | None = Field(
+        default=None, description="In-plane only: B4 of the mirror solution."
+    )
     equation: str
     curve: list[CurvePoint]
 
@@ -65,6 +72,10 @@ class LinewidthFitResult(BaseModel):
     damping: float
     damping_sigma: float
     damping_resolved: bool = Field(description="Slope exceeds two standard errors.")
+    damping_established: bool = Field(
+        description="No concern undermines α: resolved slope, R² ≥ 0.5, ΔH0 + 2σ ≥ 0."
+    )
+    damping_concerns: list[str] = Field(description="Why α is not established, if it is not.")
     r_squared: float
     equation: str
     curve: list[CurvePoint]
@@ -85,6 +96,9 @@ class AnalysisResponse(BaseModel):
         description="Why the linewidth fit alone is unavailable while the Kittel fit succeeded."
     )
     warnings: list[str]
+    summary: list[str] = Field(
+        description="Two or three plain sentences stating the outcome, built from the fields above."
+    )
 
 
 class TraceResponse(BaseModel):
