@@ -55,7 +55,7 @@ not pushed yet, by the owner's choice.
 | Commit | What |
 |---|---|
 | `89ff8c8` | Remove the superseded half-week feedback summaries |
-| `fc1dcd3` | Keep `feedback/2026-11-16_review.md`, which was also deleted in the working tree but is linked from `TASKS.md` and was not in the approved list |
+| `f9de74b` | Keep `feedback/2026-11-16_review.md`, which was also deleted in the working tree but is linked from `TASKS.md` and was not in the approved list |
 | `22ff571` | Backend: constant fix, mirror solution, damping concerns, tests |
 | `70297bd` | Frontend: intro dialog, MathML, print-style PNG, α status, browser checks |
 | `aaea2d8` | Docs: README "Why it matters", mirror and damping rules, API fields, PNG export; ARCHITECTURE, `docs/fmr-model.md`, PROMPT thresholds, TASKS |
