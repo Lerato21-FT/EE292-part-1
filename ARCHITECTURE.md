@@ -79,7 +79,14 @@ Makefile  README.md  ARCHITECTURE.md  AGENTS.md  CLAUDE.md
   covariance, linewidth errors from ordinary least squares, and the damping
   error from slope and g errors in quadrature. `at_bound` names Kittel
   parameters at a fit bound. Damping is `damping_resolved: false` when the
-  slope is within 2σ of zero.
+  slope is within 2σ of zero, and `damping_established: false` (reasons in
+  `damping_concerns`) when it is unresolved, the linewidth R² is below
+  `LINEWIDTH_R_SQUARED_THRESHOLD` (0.5), or ΔH0 + 2σ < 0. `fit_kittel`
+  reports the in-plane mirror solution `(−Beff,⊥, B4 + Beff,⊥)` in the
+  `mirror_*` fields when its B4 lies inside the B4 fit range.
+- The frontend typesets fixed model equations as MathML (the API `equation`
+  string is the accessible label) and re-renders charts on a light layout
+  for PNG export. Both are presentation only; every number comes from the API.
 - Quality checks are computed in `pipeline.py` and returned as flags and a
   `warnings` list: resonance R² below `RESONANCE_R_SQUARED_THRESHOLD` (0.98),
   and peak-to-peak modulation (2√2 × the `OeRMS` value in the filename)

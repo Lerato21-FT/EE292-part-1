@@ -6,6 +6,26 @@ sweeps, fits each derivative resonance, extracts its peak-to-peak linewidth,
 and fits the dispersion and damping models. The browser only displays API
 results and raw traces; it does not perform scientific calculations.
 
+## Why it matters
+
+Ferromagnetic resonance (FMR) measures how the magnetization of a film
+precesses in a magnetic field. From a set of field sweeps at different
+microwave frequencies it gives three things a materials scientist needs: the
+**g-factor**, the **effective perpendicular field** Beff,⊥ (whether the film
+prefers in-plane or out-of-plane magnetization), and the **Gilbert damping**
+α (how quickly precession dies out). Magnetic insulator films are candidates
+for spin-wave and spintronic devices, where low damping means spin waves
+travel further and magnetization switches with less current, so α decides
+whether a film is useful.
+
+Getting these numbers by hand means fitting every resonance line one by one,
+then fitting the dispersion and the linewidth. This app does all of it from a
+folder of CSV files, keeps every sweep inspectable, and says in plain words
+when a result should not be trusted yet: a low-quality line, broadened
+linewidths, a mirror solution the data cannot rule out, or a damping value
+that is not established. The **New to FMR? Start here** button in the app
+gives the same introduction for readers outside the field.
+
 ## Run it
 
 Requirements on the host: Docker, Make, and Git. No host Python or Node
@@ -131,6 +151,16 @@ frequencies:
 f = (g μB / h) √[(Bres + B4)(Bres + B4 + Beff,⊥)]
 ```
 
+**Mirror solution.** This in-plane model has an exact twin: swapping
+`(Beff,⊥, B4)` for `(−Beff,⊥, B4 + Beff,⊥)` swaps the two factors under the
+square root, so both give the same curve. The fit bound `Beff,⊥ > 0` always
+picks the first, by assumption rather than from the data. When the twin's B4
+also lies inside the B4 fit range (`|B4| ≤ 0.5 T`), the data cannot tell the
+two apart. The API then returns the twin in `mirror_effective_perpendicular_field_t`
+and `mirror_fourfold_field_t`, and a warning names both values. On the bundled
+demo data the twin needs B4 ≈ 0.93 T, so it is ruled out and no warning appears.
+An out-of-plane sweep or an independent Ms measurement resolves the ambiguity.
+
 The reported `Beff,⊥` is the effective perpendicular field, conventionally
 `μ0 Ms − μ0 H2⊥`; it is not the uniaxial anisotropy constant by itself. An
 independent saturation magnetization is required to recover that constant.
@@ -190,6 +220,14 @@ hold for a real sample.
   errors of zero, damping is reported but marked *consistent with zero*. If
   the slope is negative, damping is unavailable and g and Beff,⊥ are still
   reported.
+- **Damping not established.** α is still shown, but its card loses the
+  highlight and is marked **NOT ESTABLISHED** when any of these hold: the
+  slope is not resolved (above), the linewidth fit has R² < 0.5, or the
+  intercept is negative by more than two standard errors
+  (ΔH0 + 2σ < 0, since a real inhomogeneous linewidth cannot be negative).
+  The warning names the reason. On the bundled demo data the linewidth fit
+  has R² ≈ 0.10, so α is not established until outlying sweeps are excluded.
+- **Mirror solution.** In-plane only; see *Models and units* above.
 - **Parameters at a bound.** A parameter that ends at its allowed limit is
   named in a warning. Its value is a limit of the model, not a measurement.
 - **Low-quality resonances.** Sweeps whose derivative-Lorentzian fit has
@@ -238,6 +276,11 @@ convention follow [Gopman et al., perpendicular FMR measurements](https://pmc.nc
 - Fit results carry 1σ standard errors (`*_sigma` fields), `at_bound` lists
   Kittel parameters that ended at a fit bound, and `damping_resolved` is
   `false` when the linewidth slope is within two standard errors of zero.
+  `damping_established` is `false`, with reasons in `damping_concerns`, when
+  the slope is unresolved, the linewidth R² is below 0.5, or ΔH0 + 2σ < 0.
+  In-plane `kittel_fit` also has `mirror_effective_perpendicular_field_t` and
+  `mirror_fourfold_field_t`, which are `null` unless the data cannot rule out
+  the mirror solution.
   Each measurement has `low_quality` (resonance R² < 0.98),
   `modulation_rms_oe`, `modulation_pp_oe` and `modulation_warning`. The
   top-level `warnings` list explains these in words.
@@ -260,6 +303,8 @@ recovers known fits through exclusions, and checks failed raw resonance fits.
 It checks chart and label bounds at 1440, 1024, 768, 390, and 320 pixel widths
 for perpendicular data, and desktop/mobile widths for in-plane data.
 Screenshots and exported PNGs are saved under gitignored `artifacts/`.
+**Save PNG** re-renders the chart on a white, larger-type layout for reports
+and slides, at 2400 × 1700 pixels; the page itself keeps its dark theme.
 `make review` checks patch whitespace and shows the working tree changes.
 `make fresh-verify` checks the committed revision from a new clone inside
 repository `.cache/`, without local `.env` or uncommitted files. It keeps the
@@ -267,6 +312,7 @@ checkout for inspection.
 Docker builder metadata is kept in gitignored `.cache/buildx/` inside this repository.
 
 Daily implementation records live in [`notes/`](notes/), using
-`YYYY-MM-DD.md` filenames. Each record describes behavior, scientific
+`YYYY-MM-DD.md` filenames; work logs for a review round add the round, as in
+[`notes/2026-11-19-round1-session-log.md`](notes/2026-11-19-round1-session-log.md). Each record describes behavior, scientific
 conventions, tests, and any verification limits. Start with
 [`notes/2026-10-19.md`](notes/2026-10-19.md) for the perpendicular workflow.

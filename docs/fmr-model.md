@@ -43,8 +43,13 @@ Reference: [Gopman et al., perpendicular FMR measurements](https://pmc.ncbi.nlm.
 
 The in-plane fit bounds Beff,⊥ to 1e-5–2 T and requires positive resonance
 fields. A film whose perpendicular anisotropy exceeds its demagnetizing
-field (Beff,⊥ < 0) cannot be represented in-plane: the fit stops at the lower
-bound, and the API names the parameter in `at_bound` and in `warnings`.
+field (Beff,⊥ < 0) cannot be represented in-plane as such. Because the model
+is unchanged by `(Beff,⊥, B4) → (−Beff,⊥, B4 + Beff,⊥)`, the fit does not stop
+at a bound: it returns the mirror with Beff,⊥ > 0 and a shifted B4, with
+R² = 1. When the mirror's B4 lies inside the B4 fit range, the API returns it
+in `mirror_effective_perpendicular_field_t` and `mirror_fourfold_field_t` and
+names both solutions in `warnings`. Only an out-of-plane sweep or an
+independent Ms can choose between them. (Peer review round 1, wgguan.)
 Zero or negative in-plane resonances produce an explanatory `fit_error`.
 Exclude those sweeps to fit the rest.
 

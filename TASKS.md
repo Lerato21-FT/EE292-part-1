@@ -36,5 +36,15 @@ Tasks are specified here. When done with a task, label it as complete. Execute t
     run to record current values. Rotating the API key from `3fee3a2` and
     setting a git identity need the owner.
 
+- [x] Address peer review round 1 (`feedback/20261014_allenduh_l6134546.md`,
+  `feedback/20261119_wgguan_l6134546_3a.md`).
+  - Done 2026-11-19 on `fix/round1-feedback`. Fixed a one-digit typo in μB/h.
+    The damping test now uses a documented 1e-9 tolerance. The in-plane
+    mirror solution is reported, and α is marked "not established" when
+    R² < 0.5 or ΔH0 + 2σ < 0. Added an intro dialog with the "so what",
+    MathML equations, print-style PNG export and a model-scope list.
+  - Fail-first shown: 2 failures before any change, then 7 new tests that
+    failed on the old code. Log: `notes/2026-11-19-round1-session-log.md`.
+
 - [ ] Export plotted data and fits as a text/CSV download, including the fits to
   the raw traces (`notes/2026-11-11.md`, luyunqi 2026-10-13).
